@@ -1,5 +1,7 @@
 # GlassPlay
 
+![GlassPlay playing a channel from the example list, with the channel panel open](docs/screenshot.png)
+
 A streaming channel player for **Windows**, **macOS** and **Android** (phones, tablets and Android TV)
 with a *Liquid Glass* look. The backend is written in Rust with [Tauri 2](https://tauri.app); the
 interface is plain HTML/CSS/JS shipped inside the app and rendered by the system WebView
