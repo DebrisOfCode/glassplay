@@ -1,0 +1,34 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "GlassPlay",
+        "width": 1280,
+        "height": 780,
+        "minWidth": 860,
+        "minHeight": 520,
+        "center": true,
+        "visible": false,
+        "dragDropEnabled": false,
+        "decorations": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": { "x": 24, "y": 34 },
+        "backgroundColor": "#05060a"
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "dmg"],
+    "icon": ["icons/icon.icns", "icons/icon.png"],
+    "category": "public.app-category.entertainment",
+    "copyright": "Copyright (c) 2026 Luca (DebrisOfCode)",
+    "macOS": {
+      "signingIdentity": "-",
+      "minimumSystemVersion": "11.0"
+    }
+  }
+}

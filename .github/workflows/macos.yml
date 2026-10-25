@@ -1,0 +1,54 @@
+# Compila l'app macOS (.dmg universale: Apple Silicon + Intel) sui runner macOS di GitHub
+# e la allega alla release. Parte da sola quando si pubblica una release, oppure a mano
+# (Actions → macOS build → Run workflow) indicando la release a cui allegarla.
+name: macOS build
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "Tag della release a cui allegare il .dmg (vuoto = solo artefatto scaricabile)"
+        required: false
+        default: "v1.0.0"
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust per Apple Silicon e Intel
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Compilazione (.app e .dmg universali, firma ad-hoc)
+        run: npx --yes @tauri-apps/cli@2.12.4 build --target universal-apple-darwin
+
+      - name: Nome del file con versione e piattaforma
+        id: dmg
+        run: |
+          version=$(jq -r .version src-tauri/tauri.conf.json)
+          src=$(ls src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg | head -n 1)
+          out="GlassPlay-${version}-macos-universal.dmg"
+          cp "$src" "$out"
+          echo "file=$out" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: ${{ steps.dmg.outputs.file }}
+
+      - name: Allega alla release
+        if: github.event_name == 'release' || inputs.release != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.release }}
+        run: gh release upload "$TAG" "${{ steps.dmg.outputs.file }}" --clobber

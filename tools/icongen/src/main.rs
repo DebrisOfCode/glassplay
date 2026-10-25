@@ -18,6 +18,8 @@ fn main() {
         ("128x128.png", 128),
         ("128x128@2x.png", 256),
         ("icon.png", 512),
+        // Sorgente ad alta risoluzione per l'icona macOS (.icns).
+        ("icon-1024.png", 1024),
     ] {
         render(size).save_png(out.join(name)).expect("scrittura PNG fallita");
     }

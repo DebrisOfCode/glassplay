@@ -810,6 +810,16 @@ video::cue {
 .mobile .sb-toggle { top: calc(22px + env(safe-area-inset-top)); }
 .mobile .toast { top: calc(16px + env(safe-area-inset-top)); }
 
+/* ---------- macOS: pulsanti nativi della finestra ---------- */
+
+/* Il "semaforo" sta in alto a sinistra (trafficLightPosition in tauri.macos.conf.json):
+   niente pulsanti disegnati da noi, e pulsante del pannello e titolo spostati a destra. */
+.mac .win { display: none; }
+.mac .title { padding-left: 0; }
+.mac .sb-toggle { left: 96px; }
+.mac .sb-title { padding-left: 120px; }
+.mac.sb-closed .titlebar { left: 142px; }
+
 /* ---------- Android TV: elemento selezionato con il telecomando ---------- */
 
 /* Anello con "outline": viene disegnato sopra tutto (anche sopra la pillola del canale attivo)

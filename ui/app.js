@@ -37,6 +37,9 @@
   try { forcedTv = localStorage.getItem('glassplay.tv') === 'true'; } catch { /* storage non disponibile */ }
   const tv = forcedTv || (mobile && matchMedia('(pointer: none)').matches);
   const narrow = () => matchMedia('(max-width: 720px)').matches;
+  // macOS: la finestra usa i pulsanti nativi (semaforo) al posto di quelli disegnati dall'app.
+  const mac = !mobile && /Macintosh|Mac OS X/i.test(navigator.userAgent);
+  document.body.classList.toggle('mac', mac);
   document.body.classList.toggle('touch', touch || tv);
   document.body.classList.toggle('mobile', mobile);
   document.body.classList.toggle('tv', tv);
