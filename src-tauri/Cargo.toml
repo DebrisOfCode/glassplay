@@ -1,0 +1,42 @@
+[package]
+name = "glassplay"
+version = "1.0.0"
+description = "Player di canali in streaming in stile liquid glass"
+edition = "2021"
+publish = false
+
+[lib]
+# Libreria condivisa: la usa l'eseguibile desktop (main.rs) e l'app Android (cdylib/staticlib).
+name = "glassplay_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# "custom-protocol" incorpora la UI nell'eseguibile (build di produzione).
+tauri = { version = "2", features = ["custom-protocol"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+url = "2"
+base64 = "0.22"
+png = "0.17"
+
+# Desktop: TLS del sistema operativo (su Windows SChannel).
+[target.'cfg(not(target_os = "android"))'.dependencies]
+reqwest = { version = "0.12", features = ["gzip", "brotli", "deflate"] }
+
+# Android: rustls con i certificati radice inclusi (niente OpenSSL da compilare per il telefono).
+[target.'cfg(target_os = "android")'.dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "charset", "http2", "gzip", "brotli", "deflate"] }
+
+# Solo desktop: ricorda dimensione, posizione, finestra ingrandita e schermo intero.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-window-state = "2"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

@@ -1,0 +1,841 @@
+/* =========================================================
+   GlassPlay — tema "Liquid Glass"
+   ========================================================= */
+
+:root {
+  --ease-spring: cubic-bezier(.32, .72, 0, 1);
+  --ease-out: cubic-bezier(.2, .8, .2, 1);
+  --ease-in: cubic-bezier(.4, 0, .2, 1);
+
+  --text: #f5f7ff;
+  --text-2: rgba(235, 240, 255, .64);
+  --text-3: rgba(235, 240, 255, .38);
+  --accent: #7ab0ff;
+  --accent-deep: #4a7dff;
+  --live: #ff453a;
+
+  --sb-w: 332px;
+  --gap: 12px;
+  --content-left: calc(var(--sb-w) + var(--gap) * 2);
+
+  --glass-bg:
+    radial-gradient(120% 70% at 15% 0%, rgba(255, 255, 255, .16), transparent 55%),
+    linear-gradient(160deg, rgba(255, 255, 255, .12), rgba(255, 255, 255, .03)),
+    rgba(18, 20, 30, .38);
+  --glass-blur: blur(30px) saturate(190%);
+  --glass-shadow:
+    0 0 0 .5px rgba(255, 255, 255, .10),
+    inset 0 1px 1px rgba(255, 255, 255, .28),
+    inset 0 -1px 1px rgba(255, 255, 255, .06),
+    0 30px 60px -16px rgba(0, 0, 0, .6);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent; /* niente lampo blu al tocco su Android */
+  background: #05060a;
+  color: var(--text);
+  font: 14px/1.35 "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+input { font: inherit; color: inherit; background: none; border: 0; outline: 0; user-select: text; }
+svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+.preload *, .preload *::before, .preload *::after { transition: none !important; }
+.idle, .idle * { cursor: none !important; }
+
+/* ---------- Materiale vetro ---------- */
+
+.glass {
+  position: relative;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-shadow);
+}
+/* Bordo speculare: più luminoso in alto a sinistra e in basso a destra, come una lente. */
+.glass::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.2px;
+  background: linear-gradient(135deg,
+    rgba(255, 255, 255, .6), rgba(255, 255, 255, .1) 28%,
+    rgba(255, 255, 255, 0) 50%, rgba(255, 255, 255, .08) 72%, rgba(255, 255, 255, .38));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* ---------- Sfondo ambientale ---------- */
+
+.ambient { position: fixed; inset: 0; overflow: hidden; transition: opacity 1s var(--ease-out); }
+.has-channel .ambient { opacity: .3; }
+.blob {
+  position: absolute;
+  width: 70vmax; height: 70vmax;
+  border-radius: 50%;
+  opacity: .55;
+  animation: drift 26s ease-in-out infinite alternate;
+}
+.b1 { background: radial-gradient(circle, #3a6bff 0%, transparent 62%); top: -28vmax; left: -18vmax; }
+.b2 { background: radial-gradient(circle, #a24bff 0%, transparent 62%); bottom: -32vmax; right: -20vmax; animation-duration: 32s; animation-delay: -9s; }
+.b3 { background: radial-gradient(circle, #00c2ff 0%, transparent 62%); top: 20%; left: 35%; width: 45vmax; height: 45vmax; opacity: .3; animation-duration: 38s; animation-delay: -4s; }
+@keyframes drift { to { transform: translate(9vmax, 7vmax) scale(1.18); } }
+
+/* ---------- Video ---------- */
+
+.stage { position: fixed; inset: 0; }
+.video-wrap {
+  position: absolute; inset: 0;
+  transition: transform .7s var(--ease-spring), filter .7s var(--ease-spring), opacity .7s var(--ease-spring);
+}
+video { display: block; width: 100%; height: 100%; object-fit: contain; background: transparent; opacity: 0; transition: opacity .6s; }
+.has-channel video { opacity: 1; }
+
+/* Cambio canale: il video "affonda" nel vetro e riemerge. */
+.switching .video-wrap {
+  transform: scale(.94);
+  filter: blur(26px) brightness(.55) saturate(1.4);
+  opacity: .45;
+  transition-duration: .34s;
+  transition-timing-function: var(--ease-in);
+}
+
+.content {
+  position: absolute;
+  inset: 0 0 0 var(--content-left);
+  transition: left .7s var(--ease-spring);
+  pointer-events: none;
+}
+.sb-closed .content { left: 0; }
+
+/* ---------- Barra del titolo ---------- */
+
+.titlebar {
+  position: fixed; z-index: 30;
+  top: 0; right: 0; left: var(--content-left);
+  height: 56px;
+  display: flex; align-items: center;
+  padding: 0 16px;
+  transition: left .7s var(--ease-spring), opacity .45s var(--ease-out);
+}
+.sb-closed .titlebar { left: 68px; }
+.title {
+  flex: 1;
+  min-width: 0;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-2);
+  letter-spacing: .01em;
+  padding-left: 110px; /* bilancia i pulsanti finestra a destra */
+}
+.title > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.win { display: flex; gap: 8px; }
+.win button {
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  display: grid; place-items: center;
+  background: rgba(255, 255, 255, .08);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  box-shadow: inset 0 0 0 .5px rgba(255, 255, 255, .2), inset 0 1px 0 rgba(255, 255, 255, .22);
+  color: rgba(255, 255, 255, .8);
+  transition: background .2s, transform .3s var(--ease-spring), color .2s;
+}
+.win button:hover { background: rgba(255, 255, 255, .18); color: #fff; }
+.win button:active { transform: scale(.88); }
+.win .close:hover { background: #ff5f57; }
+.win svg { width: 12px; height: 12px; stroke-width: 1.4; }
+.idle .titlebar, .fs .titlebar { opacity: 0; pointer-events: none; }
+.fs .titlebar:hover { opacity: 1; pointer-events: auto; }
+
+/* ---------- Sidebar ---------- */
+
+.sidebar {
+  position: fixed; z-index: 20;
+  top: var(--gap); left: var(--gap); bottom: var(--gap);
+  width: var(--sb-w);
+  border-radius: 30px;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  transform-origin: left center;
+  transition: transform .75s var(--ease-spring), opacity .45s var(--ease-out);
+}
+/* Chiuso, oppure nascosto temporaneamente con il mouse fermo sul video (.idle):
+   in quel caso lo stato salvato non cambia e il pannello torna al primo movimento. */
+.sb-closed .sidebar, body:not(.touch).idle .sidebar {
+  transform: translateX(calc(-100% - var(--gap) * 2)) scale(.94);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.sb-toggle {
+  position: fixed; z-index: 25;
+  top: 22px; left: 22px;
+  width: 36px; height: 36px;
+  border-radius: 12px;
+  display: grid; place-items: center;
+  transition: transform .35s var(--ease-spring), opacity .45s var(--ease-out), background .2s;
+}
+.sb-toggle:hover { background: rgba(255, 255, 255, .2); }
+.sb-toggle:active { transform: scale(.88); }
+.sb-toggle svg { width: 20px; height: 20px; }
+body:not(.touch).idle .sb-toggle, .touch.idle.sb-closed .sb-toggle { opacity: 0; pointer-events: none; }
+
+.sb-head { padding: 10px 14px 12px; display: flex; flex-direction: column; gap: 10px; }
+.sb-title { height: 36px; display: flex; align-items: center; gap: 10px; padding-left: 48px; }
+.sb-title h1 { font: 650 20px/1 "SF Pro Display", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif; letter-spacing: -.02em; }
+.count {
+  font-size: 11.5px; font-weight: 600;
+  color: var(--text-2);
+  padding: 3px 8px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, .08);
+  box-shadow: inset 0 0 0 .5px rgba(255, 255, 255, .12);
+}
+.count:empty { display: none; }
+
+/* ---------- Campi ---------- */
+
+.field {
+  position: relative;
+  display: flex; align-items: center; gap: 8px;
+  height: 38px;
+  padding: 0 5px 0 12px;
+  border-radius: 13px;
+  background: rgba(255, 255, 255, .07);
+  box-shadow: inset 0 0 0 .5px rgba(255, 255, 255, .12), inset 0 1px 3px rgba(0, 0, 0, .25);
+  transition: background .25s, box-shadow .25s;
+}
+.field:focus-within {
+  background: rgba(255, 255, 255, .11);
+  box-shadow: inset 0 0 0 1px rgba(130, 170, 255, .6), 0 0 0 4px rgba(106, 168, 255, .16);
+}
+.field > svg { width: 16px; height: 16px; flex: none; opacity: .55; }
+.field input { flex: 1; min-width: 0; height: 100%; }
+.field input::placeholder { color: var(--text-3); }
+.field input::-webkit-search-cancel-button { filter: invert(1); opacity: .5; }
+.search { padding-right: 12px; }
+
+.go {
+  position: relative;
+  flex: none;
+  width: 28px; height: 28px;
+  border-radius: 9px;
+  display: grid; place-items: center;
+  background: linear-gradient(180deg, #8dbbff, var(--accent-deep));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .5), 0 4px 14px rgba(74, 125, 255, .45);
+  transition: transform .3s var(--ease-spring), filter .2s;
+}
+.go:hover { filter: brightness(1.1); }
+.go:active { transform: scale(.88); }
+.go svg { width: 16px; height: 16px; stroke-width: 2.2; }
+
+/* Durante il caricamento il campo URL lascia il posto a una riga di stato. */
+.load-status { display: none; gap: 10px; padding: 0 14px; color: var(--text-2); font-size: 13px; }
+.busy .src-picker, .busy #emptyForm { display: none; }
+.busy .load-status { display: flex; animation: status-in .45s var(--ease-spring) both; }
+@keyframes status-in { from { opacity: 0; transform: scale(.96); } }
+.status-text { flex: 1; min-width: 0; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.mini-spin {
+  flex: none;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, .18);
+  border-top-color: var(--accent);
+  animation: spin .7s linear infinite;
+}
+
+.source-meta {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  height: 24px;
+  margin-top: -2px;
+  padding: 0 0 0 6px;
+  font-size: 12px;
+  color: var(--text-3);
+  transition: opacity .3s;
+}
+.source-meta span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body:not(.has-source) .source-meta { display: none; }
+.busy .source-meta { opacity: .35; pointer-events: none; }
+.refresh {
+  flex: none;
+  display: inline-flex; align-items: center; gap: 5px;
+  height: 24px;
+  padding: 0 10px 0 8px;
+  border-radius: 12px;
+  font-size: 12px; font-weight: 600;
+  color: var(--text-2);
+  background: rgba(255, 255, 255, .08);
+  box-shadow: inset 0 0 0 .5px rgba(255, 255, 255, .14), inset 0 1px 0 rgba(255, 255, 255, .12);
+  transition: background .2s, color .2s, transform .3s var(--ease-spring);
+}
+.refresh:hover { background: rgba(255, 255, 255, .15); color: var(--text); }
+.refresh:active { transform: scale(.93); }
+.refresh svg { width: 13px; height: 13px; stroke-width: 2.2; transition: transform .5s var(--ease-spring); }
+.refresh:hover svg { transform: rotate(90deg); }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------- Lista canali ---------- */
+
+.list {
+  position: relative;
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px 8px 14px;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 12px, #000 calc(100% - 22px), transparent);
+  mask-image: linear-gradient(to bottom, transparent, #000 12px, #000 calc(100% - 22px), transparent);
+}
+/* Barra di scorrimento sottile, condivisa da lista canali e menu. */
+.list::-webkit-scrollbar, .menu-body::-webkit-scrollbar { width: 10px; }
+.list::-webkit-scrollbar-track, .menu-body::-webkit-scrollbar-track { background: transparent; }
+.list::-webkit-scrollbar-thumb, .menu-body::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .16); border-radius: 10px; border: 3px solid transparent; background-clip: content-box; }
+.list::-webkit-scrollbar-thumb:hover, .menu-body::-webkit-scrollbar-thumb:hover { background-color: rgba(255, 255, 255, .28); }
+
+/* Lista virtuale: .rows è alta quanto l'intera lista, ma contiene solo le righe visibili,
+   posizionate in assoluto con "top". Altezza riga fissa: --row in app.js (ROW). */
+.rows { position: relative; contain: strict; width: 100%; }
+.ch {
+  position: absolute; z-index: 1;
+  left: 0; right: 0;
+  height: 60px;
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 10px;
+  border-radius: 16px;
+  cursor: pointer;
+  transition: background .2s, transform .3s var(--ease-spring);
+}
+.ch.enter, .folder.enter, .sec.enter { animation: rise .6s var(--ease-out) both; animation-delay: var(--d, 0ms); }
+.ch:hover { background: rgba(255, 255, 255, .06); }
+.ch:active { transform: scale(.975); }
+@keyframes rise { from { opacity: 0; transform: translateY(14px) scale(.97); } }
+
+/* Pillola di selezione che "scivola" sul canale attivo. */
+.hl {
+  position: absolute; z-index: 0;
+  left: 0; right: 0; top: 0;
+  height: 60px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .22), rgba(255, 255, 255, .08));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .38), inset 0 0 0 .5px rgba(255, 255, 255, .22), 0 10px 26px -10px rgba(0, 0, 0, .6);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform .6s var(--ease-spring), height .3s var(--ease-spring), opacity .3s;
+}
+.hl.on { opacity: 1; }
+.hl.instant { transition: none; }
+
+.logo {
+  flex: none;
+  width: 44px; height: 44px;
+  border-radius: 12px;
+  overflow: hidden;
+  display: grid; place-items: center;
+  background: linear-gradient(160deg, rgba(255, 255, 255, .2), rgba(255, 255, 255, .07));
+  box-shadow: inset 0 0 0 .5px rgba(255, 255, 255, .2), inset 0 1px 0 rgba(255, 255, 255, .2);
+}
+.logo img { width: 100%; height: 100%; object-fit: contain; padding: 5px; }
+.logo.initials {
+  background: linear-gradient(140deg, hsl(var(--h) 75% 60%), hsl(calc(var(--h) + 45) 70% 45%));
+  font-weight: 650; font-size: 15px; letter-spacing: .02em;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .25);
+}
+
+.meta { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 1px; }
+.name, .group { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.name { font-weight: 500; transition: color .3s; }
+.group { font-size: 12px; color: var(--text-2); }
+.group:empty { display: none; }
+.ch.active .name { font-weight: 600; }
+
+.eq { flex: none; display: flex; gap: 2px; align-items: flex-end; height: 14px; opacity: 0; transition: opacity .3s; }
+.eq i { width: 3px; height: 30%; border-radius: 2px; background: var(--accent); animation: eq .9s ease-in-out infinite paused; }
+.eq i:nth-child(2) { animation-delay: -.3s; }
+.eq i:nth-child(3) { animation-delay: -.6s; }
+.ch.active .eq { opacity: 1; }
+.is-playing .ch.active .eq i { animation-play-state: running; }
+@keyframes eq { 0%, 100% { height: 25%; } 50% { height: 100%; } }
+
+.list-empty { position: absolute; top: 30px; left: 0; right: 0; text-align: center; color: var(--text-3); }
+.list-empty[hidden] { display: none; }
+
+/* ---------- Stato vuoto ---------- */
+
+.empty {
+  position: absolute; top: 50%; left: 50%;
+  width: min(460px, calc(100% - 48px));
+  padding: 34px 32px 32px;
+  border-radius: 34px;
+  text-align: center;
+  pointer-events: auto;
+  transform: translate(-50%, -50%);
+  transition: opacity .5s var(--ease-out), transform .8s var(--ease-spring);
+}
+.has-channel .empty { opacity: 0; transform: translate(-50%, -44%) scale(.92); pointer-events: none; }
+.app-icon { width: 84px; height: 84px; margin: 0 auto 18px; display: block; filter: drop-shadow(0 12px 24px rgba(60, 40, 200, .45)); animation: float 6s ease-in-out infinite; }
+@keyframes float { 50% { transform: translateY(-6px); } }
+.empty h2 { font: 650 24px/1.2 "SF Pro Display", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif; letter-spacing: -.02em; }
+.empty p { color: var(--text-2); margin: 8px 0 22px; }
+.field.big { height: 46px; border-radius: 16px; padding-left: 14px; }
+.field.big .go { width: 34px; height: 34px; border-radius: 12px; }
+.link-btn {
+  margin-top: 14px;
+  font-size: 13px; font-weight: 600;
+  color: var(--accent);
+  transition: color .2s, opacity .2s;
+}
+.link-btn:hover { color: #a9cbff; text-decoration: underline; text-underline-offset: 3px; }
+.busy .link-btn { display: none; }
+.when-src { display: none; }
+.has-source .when-src { display: block; }
+.has-source .when-nosrc { display: none; }
+.has-source .empty p { margin-bottom: 0; }
+
+/* ---------- Card cambio canale ---------- */
+
+.card {
+  position: absolute; top: 50%; left: 50%;
+  display: flex; align-items: center; gap: 16px;
+  max-width: calc(100% - 48px);
+  padding: 14px 28px 14px 14px;
+  border-radius: 30px;
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(.82);
+  transition: opacity .3s var(--ease-out), transform .55s var(--ease-spring);
+}
+.card.show { opacity: 1; transform: translate(-50%, -50%) scale(1); transition: opacity .25s var(--ease-out), transform .7s cubic-bezier(.34, 1.4, .5, 1); }
+.card .logo { width: 64px; height: 64px; border-radius: 18px; font-size: 20px; }
+.card-text { min-width: 0; }
+.card small { display: block; color: var(--text-2); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .1em; }
+.card strong { display: block; font: 650 22px/1.25 "SF Pro Display", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif; letter-spacing: -.015em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 46vw; }
+
+/* ---------- Spinner (activity indicator) ---------- */
+
+.spinner {
+  position: absolute; top: 50%; left: 50%;
+  width: 40px; height: 40px;
+  margin: -20px 0 0 -20px;
+  opacity: 0;
+  transform: scale(.6);
+  transition: opacity .3s, transform .5s var(--ease-spring);
+  pointer-events: none;
+}
+.spinner.on { opacity: 1; transform: scale(1); }
+.card.show ~ .spinner.on { transform: translateY(76px) scale(.8); }
+.spinner i {
+  position: absolute; left: calc(50% - 1.75px); top: 0;
+  width: 3.5px; height: 11px;
+  border-radius: 2px;
+  background: #fff;
+  transform-origin: 1.75px 20px;
+  transform: rotate(var(--r));
+  animation: fade 1s linear infinite;
+  animation-delay: var(--dl);
+}
+@keyframes fade { from { opacity: 1; } to { opacity: .15; } }
+
+/* ---------- Controlli ---------- */
+
+.controls {
+  position: absolute; left: 50%; bottom: 26px;
+  display: flex; align-items: center; gap: 10px;
+  width: min(560px, calc(100% - 48px));
+  height: 66px;
+  padding: 0 12px 0 11px;
+  border-radius: 33px;
+  pointer-events: auto;
+  transform: translateX(-50%);
+  transition: opacity .45s var(--ease-out), transform .7s var(--ease-spring);
+}
+body:not(.has-channel) .controls { opacity: 0; transform: translate(-50%, 40px) scale(.94); pointer-events: none; }
+.idle .controls { opacity: 0; transform: translate(-50%, 24px) scale(.97); pointer-events: none; }
+.controls .logo { width: 44px; height: 44px; border-radius: 22px; }
+.controls .logo.initials { font-size: 14px; }
+.now-text { min-width: 0; flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 3px; }
+.now-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.now-text strong { font-weight: 600; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Programma in onda, sotto il nome del canale (dallo stream o dalla guida). */
+.now-prog {
+  font-size: 12.5px;
+  color: var(--text-2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  animation: status-in .45s var(--ease-spring) both;
+}
+.now-prog:empty { display: none; }
+.live {
+  flex: none;
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .1em;
+  color: #ffd9d6;
+  padding: 2px 7px 2px 6px;
+  border-radius: 8px;
+  background: rgba(255, 69, 58, .22);
+  box-shadow: inset 0 0 0 .5px rgba(255, 120, 110, .4);
+}
+.live i { width: 6px; height: 6px; border-radius: 50%; background: var(--live); box-shadow: 0 0 6px var(--live); animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
+.sep { width: 1px; height: 28px; background: rgba(255, 255, 255, .14); margin: 0 2px; }
+
+.icon-btn {
+  flex: none;
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  display: grid; place-items: center;
+  transition: background .2s, transform .3s var(--ease-spring);
+}
+.icon-btn:hover { background: rgba(255, 255, 255, .12); }
+.icon-btn:active { transform: scale(.86); }
+.icon-btn svg { width: 21px; height: 21px; }
+
+/* Sottotitoli: il pulsante compare solo se il canale ne ha; acceso = colore d'accento. */
+.subs-btn { display: none; }
+.has-subs .subs-btn { display: grid; }
+.subs-btn.on { color: var(--accent); background: rgba(122, 176, 255, .16); }
+.subs-btn.on:hover { background: rgba(122, 176, 255, .24); }
+.sub-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+/* Sottotitoli testuali (WebVTT nella playlist, CEA-608/708 nel video). */
+video::cue {
+  font-family: "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  background: rgba(0, 0, 0, .62);
+  color: #fff;
+}
+
+.volume {
+  -webkit-appearance: none; appearance: none;
+  flex: none;
+  width: 118px; height: 6px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #fff var(--v, 80%), rgba(255, 255, 255, .2) var(--v, 80%));
+  cursor: pointer;
+  transition: height .3s var(--ease-spring), opacity .3s;
+}
+.volume:hover, .volume:active { height: 9px; }
+.volume::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, .45);
+  transform: scale(0);
+  transition: transform .3s var(--ease-spring);
+}
+.volume:hover::-webkit-slider-thumb, .volume:active::-webkit-slider-thumb { transform: scale(1); }
+.muted .volume { opacity: .4; }
+
+/* ---------- Toast (stile Dynamic Island) ---------- */
+
+.toast {
+  position: fixed; z-index: 50;
+  top: 16px; left: 50%;
+  display: flex; align-items: center; gap: 9px;
+  max-width: min(560px, 80vw);
+  padding: 10px 18px;
+  border-radius: 22px;
+  font-weight: 500;
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-50%, -90px) scale(.8);
+  transition: transform .7s var(--ease-spring), opacity .35s;
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0) scale(1); transition: transform .7s cubic-bezier(.34, 1.35, .5, 1), opacity .25s; }
+.toast-btn {
+  display: none;
+  flex: none;
+  align-items: center; gap: 5px;
+  height: 28px;
+  margin: -4px -8px -4px 4px;
+  padding: 0 12px;
+  border-radius: 14px;
+  font-size: 12.5px; font-weight: 650;
+  background: rgba(255, 255, 255, .16);
+  box-shadow: inset 0 0 0 .5px rgba(255, 255, 255, .22), inset 0 1px 0 rgba(255, 255, 255, .25);
+  transition: background .2s, transform .3s var(--ease-spring);
+}
+.toast-btn:hover { background: rgba(255, 255, 255, .26); }
+.toast-btn:active { transform: scale(.92); }
+.toast-btn svg { width: 13px; height: 13px; stroke-width: 2.3; }
+.toast.has-action .toast-btn { display: inline-flex; }
+.toast.show.has-action { pointer-events: auto; }
+#toastText { overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+
+/* ---------- Selettore liste ---------- */
+
+.head-btn {
+  margin-left: auto;
+  width: 32px; height: 32px;
+  border-radius: 11px;
+  display: grid; place-items: center;
+  color: var(--text-2);
+  transition: background .2s, color .2s, transform .3s var(--ease-spring);
+}
+.head-btn:hover { background: rgba(255, 255, 255, .1); color: var(--text); }
+.head-btn:active { transform: scale(.88); }
+.head-btn svg { width: 19px; height: 19px; }
+
+.src-picker { width: 100%; height: 44px; padding: 0 10px 0 12px; text-align: left; cursor: pointer; }
+.src-picker:hover { background: rgba(255, 255, 255, .11); }
+.src-picker[aria-expanded="true"] .chev { transform: rotate(180deg); }
+.src-text { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.2; }
+.src-name { font-weight: 600; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.src-host { font-size: 11px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.src-host:empty { display: none; }
+.src-picker .chev { width: 16px; height: 16px; opacity: .6; transition: transform .35s var(--ease-spring); }
+
+/* ---------- Righe speciali della lista: sezioni, cartelle, azioni ---------- */
+
+.sec {
+  position: absolute; left: 0; right: 0;
+  height: 30px;
+  display: flex; align-items: flex-end;
+  padding: 0 12px 6px;
+  font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--text-3);
+  border-radius: 10px;
+  transition: background .2s, color .2s;
+}
+
+.folder {
+  position: absolute; left: 0; right: 0;
+  height: 50px;
+  display: flex; align-items: center; gap: 10px;
+  padding: 0 8px 0 6px;
+  border-radius: 14px;
+  cursor: pointer;
+  transition: background .2s, transform .3s var(--ease-spring), box-shadow .2s;
+}
+.folder:hover { background: rgba(255, 255, 255, .06); }
+.folder:active { transform: scale(.98); }
+.folder .chev { width: 16px; height: 16px; flex: none; opacity: .55; transform: rotate(-90deg); transition: transform .4s var(--ease-spring); }
+.folder.open .chev { transform: rotate(0); }
+.f-icon {
+  width: 34px; height: 34px; flex: none;
+  border-radius: 10px;
+  display: grid; place-items: center;
+  background: linear-gradient(160deg, rgba(122, 176, 255, .35), rgba(155, 123, 255, .22));
+  box-shadow: inset 0 0 0 .5px rgba(255, 255, 255, .25), inset 0 1px 0 rgba(255, 255, 255, .3);
+}
+.f-icon svg { width: 18px; height: 18px; }
+.f-name { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.f-count { font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.ch.nested { padding-left: 26px; }
+
+/* Azioni che compaiono al passaggio: fissa e menu. */
+.acts { flex: none; display: flex; gap: 2px; opacity: 0; transform: translateX(6px); transition: opacity .2s, transform .3s var(--ease-spring); }
+.ch:hover .acts, .folder:hover .acts, .acts.keep { opacity: 1; transform: none; }
+.ch:hover .eq { display: none; }
+.act {
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  display: grid; place-items: center;
+  color: var(--text-2);
+  transition: background .2s, color .2s, transform .3s var(--ease-spring);
+}
+.act:hover { background: rgba(255, 255, 255, .14); color: var(--text); }
+.act:active { transform: scale(.85); }
+.act svg { width: 16px; height: 16px; }
+/* Il canale fissato mostra sempre la puntina colorata. */
+.ch.pinned .acts { opacity: 1; transform: none; }
+.ch.pinned:not(:hover) .act.more, .ch.pinned:not(:hover) .act.reload { display: none; }
+/* Ricarica: gira mentre il canale attivo si sta caricando. */
+.switching .ch.active .act.reload svg { animation: spin .9s linear infinite; }
+.ch.pinned .act.pin { color: var(--accent); }
+.ch.pinned .act.pin svg { fill: currentColor; }
+
+/* Trascinamento */
+.dragging { opacity: .45; }
+.drop-target { background: rgba(122, 176, 255, .2) !important; box-shadow: inset 0 0 0 1.5px rgba(122, 176, 255, .7); }
+
+/* ---------- Menu contestuale ---------- */
+
+.menu {
+  position: fixed; z-index: 55;
+  min-width: 220px; max-width: 320px;
+  /* Scorre solo .menu-body: così il bordo di vetro (::before) resta fermo sul bordo del menu. */
+  overflow: hidden;
+  border-radius: 18px;
+  /* Solo dissolvenza, nessuno zoom: con una trasformazione animata il contenuto
+     (icone, testi, interruttori) scivolava al suo posto e, perdendo fotogrammi,
+     sembrava saltare a caso. Così è fermo nella posizione finale fin dal primo frame. */
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .16s var(--ease-out);
+}
+.menu.open { opacity: 1; pointer-events: auto; }
+.menu-body { max-height: min(70vh, 520px); overflow-y: auto; overscroll-behavior: contain; padding: 6px; }
+.mi {
+  width: 100%;
+  display: flex; align-items: center; gap: 10px;
+  min-height: 36px;
+  padding: 6px 8px 6px 10px;
+  border-radius: 11px;
+  text-align: left;
+  font-size: 13.5px;
+  transition: background .15s;
+}
+.mi:hover, .mi:focus-visible { background: rgba(255, 255, 255, .12); outline: none; }
+.mi:disabled { opacity: .35; pointer-events: none; }
+.mi > svg { width: 16px; height: 16px; flex: none; opacity: .8; }
+.mi.danger { color: #ff8a80; }
+.mi .check { width: 16px; flex: none; color: var(--accent); }
+.mi .mi-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.mi .mi-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mi .mi-sub { font-size: 11px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mi .act { width: 26px; height: 26px; opacity: 0; transition: opacity .15s, background .2s; }
+.mi:hover .act { opacity: 1; }
+.mi .act svg { width: 14px; height: 14px; }
+.mh { padding: 8px 10px 4px; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ms { height: 1px; margin: 5px 8px; background: rgba(255, 255, 255, .1); }
+.switch {
+  flex: none;
+  width: 34px; height: 20px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, .18);
+  position: relative;
+  transition: background .25s;
+}
+.switch::after {
+  content: ""; position: absolute; top: 2px; left: 2px;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, .35);
+  transition: transform .35s var(--ease-spring);
+}
+.switch.on { background: #30d158; }
+.switch.on::after { transform: translateX(14px); }
+
+/* ---------- Anteprima ---------- */
+
+.preview {
+  position: fixed; z-index: 40;
+  width: 340px;
+  padding: 8px;
+  border-radius: 24px;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateX(-12px) scale(.94);
+  transform-origin: left center;
+  transition: opacity .25s var(--ease-out), transform .55s var(--ease-spring);
+}
+.preview.show { opacity: 1; transform: none; }
+.pv-media { position: relative; aspect-ratio: 16 / 9; border-radius: 17px; overflow: hidden; background: rgba(0, 0, 0, .45); }
+.pv-media video { width: 100%; height: 100%; object-fit: cover; display: block; opacity: 0; transition: opacity .4s; }
+.preview.playing video { opacity: 1; }
+.pv-spin { position: absolute; top: calc(50% - 8px); left: calc(50% - 8px); }
+.preview.playing .pv-spin, .preview.failed .pv-spin { display: none; }
+.pv-msg { position: absolute; inset: 0; display: grid; place-items: center; font-size: 12.5px; color: var(--text-2); }
+.pv-name { display: flex; align-items: center; gap: 8px; padding: 8px 6px 2px; min-width: 0; }
+.pv-name strong { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------- Dialoghi (stile alert iOS) ---------- */
+
+.dialog-fields { display: flex; flex-direction: column; gap: 10px; margin: -6px 0 20px; text-align: left; }
+.dialog-fields:empty { display: none; }
+.dialog-fields label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; font-weight: 600; color: var(--text-2); }
+.dialog-fields .field { padding-right: 12px; }
+.dialog-icon[hidden] { display: none; }
+.dialog p:empty { display: none; }
+/* Senza testo descrittivo (paragrafo vuoto) i campi starebbero attaccati al titolo. */
+.dialog p:empty + .dialog-fields { margin-top: 16px; }
+.btn.primary {
+  background: linear-gradient(180deg, #8dbbff, var(--accent-deep));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .45), 0 6px 18px rgba(74, 125, 255, .4);
+}
+.btn.primary:hover { filter: brightness(1.08); }
+
+/* ---------- Finestra di conferma uscita (stile alert iOS) ---------- */
+
+/* Il contenitore non ha opacità né filtri, altrimenti il vetro del dialogo non vedrebbe lo sfondo. */
+.quit { position: fixed; inset: 0; z-index: 60; visibility: hidden; transition: visibility 0s .4s; }
+.quit.open { visibility: visible; transition: none; }
+.scrim { position: absolute; inset: 0; background: rgba(3, 4, 8, .5); opacity: 0; transition: opacity .3s var(--ease-out); }
+.quit.open .scrim { opacity: 1; }
+.dialog {
+  position: fixed; top: 50%; left: 50%;
+  width: min(360px, calc(100% - 48px));
+  padding: 26px 22px 18px;
+  border-radius: 32px;
+  text-align: center;
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(1.12);
+  transition: opacity .2s var(--ease-out), transform .45s var(--ease-spring);
+}
+.quit.open .dialog { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+.dialog-icon { display: block; width: 60px; height: 60px; margin: 0 auto 12px; filter: drop-shadow(0 8px 18px rgba(60, 40, 200, .45)); }
+.dialog h3 { font: 650 18px/1.25 "SF Pro Display", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif; letter-spacing: -.01em; }
+.dialog p { color: var(--text-2); font-size: 13px; margin: 6px 0 20px; }
+.dialog-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.btn {
+  height: 42px;
+  border-radius: 21px;
+  font-weight: 600;
+  outline: none;
+  background: rgba(255, 255, 255, .1);
+  box-shadow: inset 0 0 0 .5px rgba(255, 255, 255, .16), inset 0 1px 0 rgba(255, 255, 255, .18);
+  transition: background .2s, transform .3s var(--ease-spring), box-shadow .2s, filter .2s;
+}
+.btn:hover { background: rgba(255, 255, 255, .17); }
+.btn:active { transform: scale(.95); }
+.btn.danger {
+  background: linear-gradient(180deg, #ff6b61, #e5352b);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .35), 0 6px 18px rgba(229, 53, 43, .4);
+}
+.btn.danger:hover { filter: brightness(1.08); }
+.btn:focus-visible { box-shadow: inset 0 0 0 .5px rgba(255, 255, 255, .3), 0 0 0 3px rgba(122, 176, 255, .55); }
+
+/* ---------- Touch e telefoni (app Android) ---------- */
+
+/* Senza passaggio del mouse: azioni sempre visibili, ma solo "⋯" (fissa è nel menu,
+   e toccare il canale lo ricarica già). Il canale fissato mostra comunque la puntina. */
+.touch .acts { opacity: 1; transform: none; }
+.touch .act.reload, .touch .ch:not(.pinned) .act.pin { display: none; }
+.touch .ch.pinned .act.more { display: grid; }
+.touch .ch:hover .eq { display: flex; }
+.touch .preview { display: none; }
+
+/* Telefono: niente barra della finestra né schermo intero (l'app occupa già tutto). */
+.mobile .titlebar, .mobile #fsBtn { display: none; }
+.mobile .sidebar { top: calc(var(--gap) + env(safe-area-inset-top)); bottom: calc(var(--gap) + env(safe-area-inset-bottom)); }
+.mobile .sb-toggle { top: calc(22px + env(safe-area-inset-top)); }
+.mobile .toast { top: calc(16px + env(safe-area-inset-top)); }
+
+/* ---------- Android TV: elemento selezionato con il telecomando ---------- */
+
+/* Anello con "outline": viene disegnato sopra tutto (anche sopra la pillola del canale attivo)
+   e segue gli angoli arrotondati; il bagliore resta come ombra. */
+.tv :focus { outline: none; }
+.tv .ch:focus, .tv .folder:focus, .tv .mi:focus, .tv .btn:focus,
+.tv .icon-btn:focus, .tv .head-btn:focus, .tv .sb-toggle:focus, .tv .refresh:focus,
+.tv .src-picker:focus, .tv .act:focus, .tv .go:focus, .tv .link-btn:focus, .tv .volume:focus {
+  outline: 2.5px solid rgba(122, 176, 255, .95);
+  outline-offset: 2px;
+  background-color: rgba(255, 255, 255, .16);
+  box-shadow: 0 0 24px rgba(122, 176, 255, .45);
+}
+.tv .ch:focus, .tv .folder:focus { z-index: 2; }
+.tv .field:focus-within { outline: 2.5px solid rgba(122, 176, 255, .95); outline-offset: 2px; }
+
+@media (max-width: 720px) {
+  /* Il pannello occupa la larghezza e si sovrappone al video. */
+  :root { --sb-w: calc(100vw - var(--gap) * 2); }
+  .content, .sb-closed .content { left: 0; }
+  .controls { width: calc(100% - 24px); bottom: calc(16px + env(safe-area-inset-bottom)); gap: 6px; padding: 0 8px; }
+  .volume { width: 72px; }
+  .card strong { max-width: 60vw; }
+  .empty { padding: 26px 20px 24px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}

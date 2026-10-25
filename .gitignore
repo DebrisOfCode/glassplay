@@ -1,0 +1,23 @@
+# Output di compilazione
+/dist/
+target/
+/src-tauri/gen/schemas/
+
+# Progetto Android generato: output e file locali
+/src-tauri/gen/android/**/build/
+/src-tauri/gen/android/.gradle/
+/src-tauri/gen/android/local.properties
+/src-tauri/gen/android/app/src/main/jniLibs/
+/src-tauri/gen/android/**/.idea/
+
+# Chiavi di firma Android: non vanno mai pubblicate
+*.jks
+*.keystore
+keystore.properties
+
+# Editor e sistema
+.vscode/
+.idea/
+*.log
+Thumbs.db
+.DS_Store

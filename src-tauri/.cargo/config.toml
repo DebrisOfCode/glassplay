@@ -1,0 +1,4 @@
+﻿# Sceglie automaticamente versioni delle dipendenze compatibili con la toolchain installata.
+[resolver]
+incompatible-rust-versions = "fallback"
+

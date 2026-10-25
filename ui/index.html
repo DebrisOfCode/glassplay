@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>GlassPlay</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="vendor/hls.min.js"></script>
+  <script src="i18n.js"></script>
+  <script src="app.js" defer></script>
+</head>
+<!-- Testi: data-i18n (contenuto), data-i18n-title, data-i18n-placeholder, data-i18n-aria → chiavi di i18n.js -->
+<body class="preload">
+  <!-- Sfondo ambientale: dà al vetro qualcosa da rifrangere quando non c'è video -->
+  <div class="ambient" aria-hidden="true">
+    <span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span>
+  </div>
+
+  <main id="stage" class="stage">
+    <div id="videoWrap" class="video-wrap">
+      <video id="video" playsinline></video>
+      <!-- Sottotitoli DVB (immagini decodificate in Rust), disegnati sopra il video -->
+      <canvas id="subCanvas" class="sub-canvas" aria-hidden="true"></canvas>
+    </div>
+
+    <div class="content">
+      <section id="empty" class="empty glass">
+        <img class="app-icon" src="assets/icon.png" alt="">
+        <div class="when-nosrc">
+          <h2 data-i18n="welcome.title"></h2>
+          <p data-i18n="welcome.text"></p>
+          <form id="emptyForm" class="field big">
+            <svg viewBox="0 0 24 24"><path d="M10 14a4.5 4.5 0 0 0 6.4 0l3.2-3.2a4.5 4.5 0 0 0-6.4-6.4L12 5.6M14 10a4.5 4.5 0 0 0-6.4 0l-3.2 3.2a4.5 4.5 0 0 0 6.4 6.4l1.2-1.2"/></svg>
+            <input id="emptyInput" type="url" placeholder="https://…" spellcheck="false" autocomplete="off" required>
+            <button class="go" type="submit" data-i18n-title="empty.add"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+          </form>
+          <div class="field big load-status" role="status"><span class="mini-spin"></span><span class="status-text"></span></div>
+          <button id="emptyFile" class="link-btn" type="button" data-i18n="empty.file"></button>
+        </div>
+        <div class="when-src">
+          <h2 data-i18n="pick.title"></h2>
+          <p data-i18n="pick.text"></p>
+        </div>
+      </section>
+
+      <div id="card" class="card glass" aria-live="polite">
+        <div id="cardLogo" class="logo"></div>
+        <div class="card-text"><small data-i18n="card.now"></small><strong id="cardName"></strong></div>
+      </div>
+
+      <div id="spinner" class="spinner" aria-hidden="true"></div>
+
+      <div id="controls" class="controls glass">
+        <div id="nowLogo" class="logo"></div>
+        <div class="now-text">
+          <div class="now-line">
+            <span class="live"><i></i><span data-i18n="live"></span></span>
+            <strong id="nowName"></strong>
+          </div>
+          <span id="nowProgram" class="now-prog"></span>
+        </div>
+        <div class="sep"></div>
+        <button id="subsBtn" class="icon-btn subs-btn" type="button" aria-pressed="false" data-i18n-title="ctl.subs">
+          <svg viewBox="0 0 24 24"><rect x="3" y="5.5" width="18" height="13" rx="3.5"/><path d="M10.6 10.3a2.3 2.3 0 1 0 0 3.4M16.6 10.3a2.3 2.3 0 1 0 0 3.4"/></svg>
+        </button>
+        <button id="muteBtn" class="icon-btn" data-i18n-title="ctl.mute"></button>
+        <input id="volume" class="volume" type="range" min="0" max="100" step="1" data-i18n-aria="ctl.volume">
+        <button id="fsBtn" class="icon-btn" data-i18n-title="ctl.fs">
+          <svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+        </button>
+      </div>
+    </div>
+  </main>
+
+  <header class="titlebar" data-tauri-drag-region>
+    <div class="title" data-tauri-drag-region>
+      <span id="title" data-tauri-drag-region>GlassPlay</span>
+    </div>
+    <div class="win">
+      <button id="winMin" data-i18n-title="win.min"><svg viewBox="0 0 12 12"><path d="M2.5 6h7"/></svg></button>
+      <button id="winMax" data-i18n-title="win.max"><svg viewBox="0 0 12 12"><rect x="2.5" y="2.5" width="7" height="7" rx="1.5"/></svg></button>
+      <button id="winClose" class="close" data-i18n-title="win.close"><svg viewBox="0 0 12 12"><path d="M3 3l6 6M9 3l-6 6"/></svg></button>
+    </div>
+  </header>
+
+  <aside id="sidebar" class="sidebar glass">
+    <div class="sb-head">
+      <div class="sb-title" data-tauri-drag-region>
+        <h1 data-tauri-drag-region data-i18n="sb.title"></h1>
+        <span id="count" class="count"></span>
+        <button id="optionsBtn" class="head-btn" type="button" data-i18n-title="sb.options">
+          <svg viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg>
+        </button>
+      </div>
+      <button id="srcBtn" class="field src-picker" type="button" data-i18n-title="sb.lists">
+        <svg viewBox="0 0 24 24"><path d="M4 6.5h16M4 12h16M4 17.5h10"/></svg>
+        <span class="src-text"><span id="srcName" class="src-name"></span><span id="srcHost" class="src-host"></span></span>
+        <svg class="chev" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5"/></svg>
+      </button>
+      <div class="field load-status" role="status"><span class="mini-spin"></span><span class="status-text"></span></div>
+      <div class="source-meta">
+        <span id="updatedAt"></span>
+        <button id="refreshBtn" class="refresh" type="button">
+          <svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v5h-5"/></svg><span data-i18n="sb.refresh"></span>
+        </button>
+      </div>
+      <label class="field search">
+        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
+        <input id="searchInput" type="search" data-i18n-placeholder="sb.search" spellcheck="false" autocomplete="off">
+      </label>
+    </div>
+    <div id="list" class="list" role="listbox">
+      <div id="rows" class="rows"><div id="hl" class="hl" aria-hidden="true"></div></div>
+      <div id="listEmpty" class="list-empty" hidden data-i18n="sb.noResults"></div>
+    </div>
+  </aside>
+
+  <button id="sbToggle" class="sb-toggle glass" data-i18n-title="sb.toggle">
+    <svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="3.5"/><path d="M9.5 5v14M5.8 8.5h1.6M5.8 11h1.6"/></svg>
+  </button>
+
+  <div id="toast" class="toast glass">
+    <span id="toastText"></span>
+    <button id="toastAction" class="toast-btn" type="button"></button>
+  </div>
+
+  <!-- Anteprima del canale al passaggio del mouse -->
+  <div id="preview" class="preview glass" aria-hidden="true">
+    <div class="pv-media">
+      <video id="pvVideo" muted playsinline></video>
+      <span class="pv-msg" id="pvMsg"></span>
+      <span class="mini-spin pv-spin"></span>
+    </div>
+    <div class="pv-name"><span class="live"><i></i><span data-i18n="live"></span></span><strong id="pvName"></strong></div>
+  </div>
+
+  <!-- Selettore di file per le liste M3U caricate dal disco -->
+  <input id="fileInput" type="file" accept=".m3u,.m3u8,audio/x-mpegurl,application/vnd.apple.mpegurl" hidden>
+
+  <!-- Menu contestuale (opzioni, liste, canali, cartelle) -->
+  <div id="menu" class="menu glass" role="menu"></div>
+
+  <!-- Dialogo generico: conferme, nomi di cartelle e liste, uscita -->
+  <div id="dialog" class="quit">
+    <div id="dialogScrim" class="scrim"></div>
+    <form id="dialogForm" class="dialog glass" role="alertdialog" aria-modal="true" aria-labelledby="dialogTitle">
+      <img id="dialogIcon" class="dialog-icon" src="assets/icon.png" alt="">
+      <h3 id="dialogTitle"></h3>
+      <p id="dialogText"></p>
+      <div id="dialogFields" class="dialog-fields"></div>
+      <div class="dialog-actions">
+        <button id="dialogCancel" class="btn" type="button"></button>
+        <button id="dialogConfirm" class="btn primary" type="submit"></button>
+      </div>
+    </form>
+  </div>
+</body>
+</html>
