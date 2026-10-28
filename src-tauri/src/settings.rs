@@ -26,12 +26,24 @@ pub struct Source {
     pub updated_at: Option<u64>,
 }
 
+/// Server proxy attraverso cui passa tutto il traffico dell'app (liste, guida, video, loghi).
+#[derive(Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Proxy {
+    pub enabled: bool,
+    /// "socks5://host:porta", "http://host:porta" o "https://host:porta".
+    pub url: String,
+    pub username: String,
+    pub password: String,
+}
+
 #[derive(Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
     pub sources: Vec<Source>,
     /// Lista selezionata nell'ultima sessione.
     pub active: Option<String>,
+    pub proxy: Proxy,
 
     // Formato precedente (una sola lista): letto solo per la migrazione.
     #[serde(skip_serializing)]
@@ -122,8 +134,38 @@ pub fn save(app: &AppHandle, settings: &Settings) -> Result<(), String> {
 }
 
 /// Copia della lista scaricata, così all'avvio non va riscaricata.
-pub fn read_cache(app: &AppHandle, id: &str) -> Option<String> {
-    fs::read_to_string(list_file(app, id, "cache")?).ok()
+pub fn cache_path(app: &AppHandle, id: &str) -> Option<PathBuf> {
+    list_file(app, id, "cache")
+}
+
+/// Lista in arrivo: si scarica qui e diventa la copia salvata solo se si legge senza errori.
+pub fn part_path(app: &AppHandle, id: &str) -> Result<PathBuf, String> {
+    let p = list_file(app, id, "part").ok_or("id lista non valido")?;
+    if let Some(dir) = p.parent() {
+        fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    Ok(p)
+}
+
+/// La lista appena scaricata (e letta) sostituisce la copia salvata.
+pub fn commit_part(app: &AppHandle, id: &str) -> Result<(), String> {
+    let cache = cache_path(app, id).ok_or("id lista non valido")?;
+    fs::rename(part_path(app, id)?, cache).map_err(|e| e.to_string())
+}
+
+pub fn remove_part(app: &AppHandle, id: &str) {
+    if let Ok(p) = part_path(app, id) {
+        let _ = fs::remove_file(p);
+    }
+}
+
+/// Copia della guida dei programmi della lista (come scaricata, anche compressa).
+pub fn guide_path(app: &AppHandle, id: &str) -> Result<PathBuf, String> {
+    let p = list_file(app, id, "epg").ok_or("id lista non valido")?;
+    if let Some(dir) = p.parent() {
+        fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    Ok(p)
 }
 
 pub fn write_cache(app: &AppHandle, id: &str, body: &str) -> Result<(), String> {
@@ -151,6 +193,10 @@ pub fn remove_cache(app: &AppHandle, id: &str) {
 
 pub fn remove_files(app: &AppHandle, id: &str) {
     remove_cache(app, id);
+    remove_part(app, id);
+    if let Ok(p) = guide_path(app, id) {
+        let _ = fs::remove_file(p);
+    }
     if let Some(p) = list_file(app, id, "org.json") {
         let _ = fs::remove_file(p);
     }

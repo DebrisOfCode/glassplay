@@ -13,13 +13,25 @@ GlassPlay is a player only: it does not provide any channels or lists.
 
 - **Multiple lists** by URL (JSON or M3U/M3U8) or from a local **M3U file**, each with its own name.
   A list is saved only if it downloads and parses correctly; a local copy is kept so the app opens instantly.
-- **Huge lists**: virtual scrolling handles hundreds of thousands of channels.
+- **Huge lists**: the channels stay in the Rust backend in a compact form and the interface only
+  receives the rows on screen, so hundreds of thousands of channels open quickly and use little memory
+  (a 300,000-channel list takes about 40 MB in Rust and 2 MB in the WebView). Search runs in Rust too.
 - **Folders** (create, rename, reorder, delete, drag & drop) and **pinned** channels, per list.
-- **Hover preview** (desktop) after 1 second, muted and at the lowest quality.
+- **Public lists**: with no list (or from the lists menu) you can add free, legal channel lists collected
+  by volunteers: [iptv-org](https://github.com/iptv-org/iptv) by country or category, and
+  [Free-TV](https://github.com/Free-TV/IPTV). GlassPlay does not host these channels.
+- **Program guide** (XMLTV, from the Xtream panel or the list's `url-tvg`): the program on air under each
+  channel, **search by program** ("what's on"), and a **TV guide page** (channels × hours) where the video
+  keeps playing in a corner. The guide is downloaded at most every 6 hours.
+- **Hover preview** (desktop) after 1 second, muted and at the lowest quality, with the program on air.
 - **Now playing**: program title from the stream (DVB EIT tables) or from the Xtream Codes guide.
+- **Proxy**: optionally route all traffic (lists, guide, video, logos) through your own SOCKS5, HTTP or
+  HTTPS proxy, with a test that shows the IP address websites see. Whoever runs the proxy can see what
+  you watch and your list credentials: only use servers you trust.
 - **Subtitles**: DVB bitmap subtitles decoded in Rust, plus WebVTT tracks and CEA-608/708 captions.
 - **Xtream Codes** panels: MPEG-TS links are played through their HLS variant.
-- **Android TV**: full remote-control navigation and a launcher banner.
+- **Android TV**: full remote-control navigation (the list scrolls as you move, with page up/down and
+  back-to-top buttons) and a launcher banner.
 - **13 languages** (system language by default): IT, EN, ES, FR, DE, RO, PL, RU, UK, TR, ZH, JA, KO.
 - Remembers window size/position and fullscreen (desktop), volume, last channel and last list.
 
@@ -31,7 +43,12 @@ Ready-made builds are attached to each [release](../../releases):
 |---|---|
 | `GlassPlay-<version>-windows-x64.exe` | Windows 10/11, 64-bit (uses the system WebView2, no installation) |
 | `GlassPlay-<version>-macos-universal.dmg` | macOS 11 or later, Apple Silicon and Intel |
-| `GlassPlay-<version>-android.apk` | Android 7+ phones, tablets and Android TV |
+| `GlassPlay-<version>-android-tv.apk` | Android TV boxes and TVs (also phones and tablets), Android 7+, ARM |
+
+Since 1.1.0 the Android download is the **TV build** (the `legacy/` variant): Android's own video player
+with hardware decoding, so HD streams also play on low-power boxes such as the Xiaomi Mi Box S (2 GB RAM),
+a lighter interface that runs even on the stock WebView of Android 9, and no adult channels. See
+[legacy/README.md](legacy/README.md). The regular Android build can still be made with `.\build.ps1 -Android`.
 
 The builds are not signed with paid developer certificates, so the systems warn on first launch:
 
@@ -83,6 +100,7 @@ Requirements: [rustup](https://rustup.rs) and, on Windows, the Visual Studio Bui
 .\build.ps1            # Windows executable  -> dist\GlassPlay.exe
 .\build.ps1 -Test      # unit tests
 .\build.ps1 -Android   # Android APK          -> dist\GlassPlay.apk
+.\build.ps1 -Legacy    # Android APK for low-power TV boxes -> legacy\dist\GlassPlay-legacy.apk
 ```
 
 The script always uses rustup's default toolchain (even if another `cargo` is on the PATH) and
@@ -137,11 +155,13 @@ cargo run --release --manifest-path tools\icongen\Cargo.toml -- src-tauri\icons
 
 - `src-tauri/src/lib.rs`: Tauri commands (lists, downloads, saved copies), shared by all platforms
 - `src-tauri/src/playlist.rs`: JSON and M3U parsing
+- `src-tauri/src/store.rs`: the open list in compact form (rows on demand, search, saved channels)
 - `src-tauri/src/proxy.rs`: `stream://` proxy for the player (CORS, absolute playlist URLs, metadata)
 - `src-tauri/src/dvbsub.rs`: DVB subtitle decoder (ETSI EN 300 743)
 - `src-tauri/src/meta.rs`: program title (DVB EIT, Xtream guide)
 - `src-tauri/src/settings.rs`: settings and saved lists in the app data folder
 - `ui/`: interface (glass design, virtual list, player built on hls.js), translations in `ui/i18n.js`
+- `legacy/`: lighter variant of the interface for low-power TV boxes (see its README)
 
 ## Known limitations
 

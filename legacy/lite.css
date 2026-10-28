@@ -1,0 +1,99 @@
+/* =========================================================
+   GlassPlay legacy — stile alleggerito per dispositivi poco potenti
+   (TV box Android con GPU Mali-450 e 2 GB di memoria, come lo Xiaomi Mi Box S).
+   Si aggiunge a style.css; vale solo con la classe "lite" (impostata da app.js).
+   ========================================================= */
+
+/* Vetro senza sfocatura dello sfondo. Con il video sotto, il backdrop-filter va ricalcolato a
+   ogni fotogramma: è l'effetto più pesante per una GPU debole e fa scattare il video.
+   Al suo posto un fondo quasi opaco, con lo stesso riflesso in alto. */
+.lite .glass, .lite .win button {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.lite .glass {
+  background: linear-gradient(160deg, rgba(48, 53, 72, .97), rgba(22, 24, 34, .97));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .1), inset 0 1px 0 rgba(255, 255, 255, .16);
+}
+/* Bordo speculare: maschera composita, costosa da disegnare. */
+.lite .glass::before { display: none; }
+
+/* Sfondo: fermo, e tolto del tutto mentre c'è un canale (sono tre livelli grandi quanto lo schermo). */
+.lite .blob { animation: none; }
+.lite.has-channel .ambient { display: none; }
+.lite .app-icon { animation: none; filter: none; }
+.lite .dialog-icon { filter: none; }
+
+/* Cambio canale: solo dissolvenza, niente zoom e sfocatura del video. */
+.lite .video-wrap { transition: opacity .2s; }
+.lite.switching .video-wrap { transform: none; filter: none; opacity: .35; }
+/* Con la guida aperta la miniatura resta nell'angolo anche durante il cambio canale. */
+.lite.guide-open .video-wrap { transform: translate(-24px, -24px) scale(.25); }
+.lite .guide, .lite.guide-open .guide { transform: none; transition: opacity .15s, visibility 0s; }
+.lite .g-btn { transition: none; }
+/* Pulsanti della lista: vetro chiaro anche senza sfocatura. */
+.lite .list-btn { -webkit-backdrop-filter: none; backdrop-filter: none; background: linear-gradient(160deg, rgba(255, 255, 255, .3), rgba(255, 255, 255, .12)); }
+.lite .g-prog, .lite .pub-card, .lite .list-btn { transition: none; }
+
+/* Lista: niente maschera sfumata ai bordi (obbliga a ridisegnare tutta la lista fuori schermo),
+   niente animazioni continue né transizioni sulle righe. */
+.lite .list { -webkit-mask-image: none; mask-image: none; }
+.lite .eq i, .lite .live i { animation: none; }
+.lite .eq i { transform: scaleY(.7); }
+.lite .ch, .lite .folder, .lite .acts, .lite .act { transition: none; }
+.lite .hl {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .3), inset 0 0 0 .5px rgba(255, 255, 255, .2);
+  transition: transform .2s var(--ease-out), opacity .2s;
+}
+.lite .hl.instant { transition: none; }
+
+/* Movimenti brevi e solo con trasformazioni e opacità (le animazioni di "left" ricalcolano
+   l'impaginazione a ogni fotogramma). */
+.lite .sidebar { transition: transform .28s var(--ease-out), opacity .2s; }
+.lite .content, .lite .titlebar { transition: none; }
+.lite .controls { transition: opacity .2s, transform .28s var(--ease-out); }
+.lite .card, .lite .card.show { transform: translate(-50%, -50%); transition: opacity .2s; }
+.lite .toast, .lite .toast.show { transition: opacity .2s, transform .28s var(--ease-out); }
+.lite .menu, .lite .scrim { transition: none; }
+.lite .dialog, .lite .quit.open .dialog { transform: translate(-50%, -50%); transition: opacity .15s; }
+.lite .spinner { transition: opacity .2s; }
+
+/* Ombre ampie e bagliori: costosi da disegnare e poco visibili sulla TV. */
+.lite .go, .lite .btn.primary, .lite .btn.danger { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .4); }
+.lite .logo.initials { text-shadow: none; }
+.lite.tv .ch:focus, .lite.tv .folder:focus, .lite.tv .mi:focus, .lite.tv .btn:focus,
+.lite.tv .icon-btn:focus, .lite.tv .head-btn:focus, .lite.tv .sb-toggle:focus, .lite.tv .refresh:focus,
+.lite.tv .src-picker:focus, .lite.tv .act:focus, .lite.tv .go:focus, .lite.tv .link-btn:focus, .lite.tv .volume:focus {
+  box-shadow: none;
+}
+
+/* WebView vecchie (Chromium < 84): "gap" non vale nei flexbox e icone e testi si toccano.
+   lite.js lo rileva (classe no-flex-gap) e le spaziature diventano margini. */
+.no-flex-gap .field > * + *, .no-flex-gap .title > * + *, .no-flex-gap .win > * + *,
+.no-flex-gap .source-meta > * + *, .no-flex-gap .now-line > * + *, .no-flex-gap .pv-name > * + * { margin-left: 8px; }
+.no-flex-gap .sb-title > * + :not(.head-btn), .no-flex-gap .load-status > * + *, .no-flex-gap .controls > * + *,
+.no-flex-gap .folder > * + *, .no-flex-gap .mi > * + * { margin-left: 10px; }
+.no-flex-gap .ch > * + * { margin-left: 12px; }
+.no-flex-gap .card > * + * { margin-left: 16px; }
+.no-flex-gap .toast > * + * { margin-left: 9px; }
+.no-flex-gap .refresh > * + *, .no-flex-gap .live > * + *, .no-flex-gap .toast-btn > * + * { margin-left: 5px; }
+.no-flex-gap .eq > * + *, .no-flex-gap .acts > * + * { margin-left: 2px; }
+.no-flex-gap .sb-head > * + *, .no-flex-gap .dialog-fields > * + * { margin-top: 10px; }
+.no-flex-gap .dialog-fields label > .field { margin-top: 5px; }
+.no-flex-gap .now-text > * + * { margin-top: 3px; }
+.no-flex-gap .meta > * + * { margin-top: 1px; }
+.no-flex-gap .pub-card > * + *, .no-flex-gap .g-name > * + * { margin-left: 10px; }
+.no-flex-gap .g-head > * + * { margin-left: 12px; }
+.no-flex-gap .list-nav > * + * { margin-top: 8px; }
+.no-flex-gap .g-prog > * + * { margin-top: 2px; }
+.no-flex-gap .g-foot > * + * { margin-left: 18px; }
+.no-flex-gap .g-nav > * + * { margin-left: 6px; }
+.no-flex-gap .g-btn > * + * { margin-left: 4px; }
+.no-flex-gap .g-foot-text > * + * { margin-top: 4px; }
+
+/* WebView vecchie (Chromium < 79) non conoscono min(): larghezze equivalenti con max-width. */
+.lite .empty { width: 460px; max-width: calc(100% - 48px); }
+.lite .controls { width: 560px; max-width: calc(100% - 48px); }
+.lite .dialog { width: 360px; max-width: calc(100% - 48px); }
+.lite .toast { max-width: 80vw; }
+.lite .menu-body { max-height: 70vh; }

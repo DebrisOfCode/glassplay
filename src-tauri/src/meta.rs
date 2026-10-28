@@ -174,6 +174,21 @@ fn xtream_epg_url(stream: &str) -> Option<Url> {
     Some(api)
 }
 
+/// Guida completa (XMLTV) di un pannello Xtream, dall'indirizzo della lista
+/// (".../get.php?username=…&password=…" -> ".../xmltv.php?username=…&password=…").
+pub fn xtream_guide_url(list: &str) -> Option<String> {
+    let url = Url::parse(list).ok()?;
+    if !url.path().ends_with("/get.php") {
+        return None;
+    }
+    let param = |name: &str| url.query_pairs().find(|(k, _)| k == name).map(|(_, v)| v.into_owned());
+    let (user, pass) = (param("username")?, param("password")?);
+    let mut guide = url.clone();
+    guide.set_path(&url.path().replace("/get.php", "/xmltv.php"));
+    guide.query_pairs_mut().clear().append_pair("username", &user).append_pair("password", &pass);
+    Some(guide.to_string())
+}
+
 pub async fn xtream_program(stream: &str) -> Option<Program> {
     let api = xtream_epg_url(stream)?;
     let resp = net::client().get(api).timeout(Duration::from_secs(8)).send().await.ok()?;

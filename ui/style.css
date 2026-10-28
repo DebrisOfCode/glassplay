@@ -91,6 +91,8 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round
 .b2 { background: radial-gradient(circle, #a24bff 0%, transparent 62%); bottom: -32vmax; right: -20vmax; animation-duration: 32s; animation-delay: -9s; }
 .b3 { background: radial-gradient(circle, #00c2ff 0%, transparent 62%); top: 20%; left: 35%; width: 45vmax; height: 45vmax; opacity: .3; animation-duration: 38s; animation-delay: -4s; }
 @keyframes drift { to { transform: translate(9vmax, 7vmax) scale(1.18); } }
+/* Con il video in riproduzione lo sfondo si vede appena: si ferma, così la GPU non lo ricompone di continuo. */
+.is-playing .blob { animation-play-state: paused; }
 
 /* ---------- Video ---------- */
 
@@ -113,7 +115,8 @@ video { display: block; width: 100%; height: 100%; object-fit: contain; backgrou
 
 .content {
   position: absolute;
-  inset: 0 0 0 var(--content-left);
+  /* Proprietà separate invece di "inset": la versione legacy la converte solo senza var(). */
+  top: 0; right: 0; bottom: 0; left: var(--content-left);
   transition: left .7s var(--ease-spring);
   pointer-events: none;
 }
@@ -361,12 +364,13 @@ body:not(.has-source) .source-meta { display: none; }
 .ch.active .name { font-weight: 600; }
 
 .eq { flex: none; display: flex; gap: 2px; align-items: flex-end; height: 14px; opacity: 0; transition: opacity .3s; }
-.eq i { width: 3px; height: 30%; border-radius: 2px; background: var(--accent); animation: eq .9s ease-in-out infinite paused; }
+/* Barre animate con una trasformazione (non con l'altezza): le muove la GPU, senza ridisegnare la riga. */
+.eq i { width: 3px; height: 100%; border-radius: 2px; background: var(--accent); transform: scaleY(.3); transform-origin: bottom; animation: eq .9s ease-in-out infinite paused; }
 .eq i:nth-child(2) { animation-delay: -.3s; }
 .eq i:nth-child(3) { animation-delay: -.6s; }
 .ch.active .eq { opacity: 1; }
 .is-playing .ch.active .eq i { animation-play-state: running; }
-@keyframes eq { 0%, 100% { height: 25%; } 50% { height: 100%; } }
+@keyframes eq { 0%, 100% { transform: scaleY(.25); } 50% { transform: scaleY(1); } }
 
 .list-empty { position: absolute; top: 30px; left: 0; right: 0; text-align: center; color: var(--text-3); }
 .list-empty[hidden] { display: none; }
@@ -677,9 +681,9 @@ video::cue {
 .menu-body { max-height: min(70vh, 520px); overflow-y: auto; overscroll-behavior: contain; padding: 6px; }
 .mi {
   width: 100%;
-  display: flex; align-items: center; gap: 10px;
-  min-height: 36px;
-  padding: 6px 8px 6px 10px;
+  display: flex; align-items: center; gap: 8px;
+  min-height: 32px;
+  padding: 4px 8px 4px 9px;
   border-radius: 11px;
   text-align: left;
   font-size: 13.5px;
@@ -737,6 +741,9 @@ video::cue {
 .pv-msg { position: absolute; inset: 0; display: grid; place-items: center; font-size: 12.5px; color: var(--text-2); }
 .pv-name { display: flex; align-items: center; gap: 8px; padding: 8px 6px 2px; min-width: 0; }
 .pv-name strong { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Programma in onda sotto il nome del canale in anteprima. */
+.pv-prog { padding: 0 6px 2px; font-size: 12.5px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pv-prog:empty { display: none; }
 
 /* ---------- Dialoghi (stile alert iOS) ---------- */
 
@@ -794,6 +801,221 @@ video::cue {
 .btn.danger:hover { filter: brightness(1.08); }
 .btn:focus-visible { box-shadow: inset 0 0 0 .5px rgba(255, 255, 255, .3), 0 0 0 3px rgba(122, 176, 255, .55); }
 
+/* ---------- Programma in onda nelle righe ---------- */
+
+.group.prog { color: rgba(150, 190, 255, .85); }
+
+/* ---------- Torna su, pagina su/giù ---------- */
+
+.list-nav {
+  position: absolute; right: 14px; bottom: 18px; z-index: 3;
+  display: flex; flex-direction: column; gap: 8px;
+  pointer-events: none;
+}
+/* Vetro liquido chiaro, come i pulsanti della finestra. */
+.list-btn {
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  display: grid; place-items: center;
+  color: #fff;
+  background: linear-gradient(160deg, rgba(255, 255, 255, .26), rgba(255, 255, 255, .07));
+  -webkit-backdrop-filter: blur(18px) saturate(180%);
+  backdrop-filter: blur(18px) saturate(180%);
+  box-shadow: inset 0 0 0 .5px rgba(255, 255, 255, .38), inset 0 1px 1px rgba(255, 255, 255, .5), 0 8px 22px rgba(0, 0, 0, .3);
+  pointer-events: auto;
+  transition: opacity .25s, transform .3s var(--ease-spring), background .2s;
+}
+.list-btn:hover { background: linear-gradient(160deg, rgba(255, 255, 255, .34), rgba(255, 255, 255, .12)); }
+.list-btn:active { transform: scale(.9); }
+.list-btn svg { width: 19px; height: 19px; stroke-width: 2.2; }
+.top-btn { opacity: 0; transform: translateY(10px) scale(.9); pointer-events: none; }
+.top-btn.show { opacity: 1; transform: none; pointer-events: auto; }
+.page-btn { display: none; }
+body:not(.has-source) .list-nav { display: none; }
+/* TV: pagina su/giù sempre a portata di telecomando, in una colonna accanto alle righe. */
+.tv .page-btn { display: grid; }
+.tv .list { padding-right: 62px; }
+
+/* ---------- Guida: pulsante nel pannello ---------- */
+
+.guide-btn { display: none; }
+.has-guide .guide-btn { display: grid; }
+.has-guide .guide-btn + .head-btn { margin-left: 2px; }
+
+/* ---------- Liste pubbliche (nella scheda di benvenuto) ---------- */
+
+body:not(.has-source) .empty, .browsing .empty {
+  width: min(760px, calc(100% - 48px));
+  max-height: calc(100% - 48px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.empty::-webkit-scrollbar { width: 10px; }
+.empty::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .16); border-radius: 10px; border: 3px solid transparent; background-clip: content-box; }
+.browse-head, .browse-close { display: none; }
+.browsing .browse-head { display: block; }
+.browsing .welcome-head { display: none; }
+.browse-close { position: absolute; top: 16px; right: 16px; }
+.browsing .browse-close { display: grid; }
+.has-source.browsing .when-nosrc { display: block; }
+.browsing .when-src { display: none; }
+.browsing.has-channel .empty { opacity: 1; transform: translate(-50%, -50%); pointer-events: auto; }
+/* Sopra il video il vetro sarebbe troppo chiaro per leggere bene le schede. */
+.browsing.has-channel .empty.glass { background: linear-gradient(160deg, rgba(40, 44, 60, .9), rgba(14, 16, 24, .92)); }
+.browsing .content { z-index: 36; }
+.public-lists { margin-top: 26px; text-align: left; }
+.public-lists:empty { display: none; }
+.has-source:not(.browsing) .public-lists { display: none; }
+.pub-note { font-size: 12.5px; color: var(--text-3); text-align: center; margin: 0 0 6px; }
+.pub-sec { margin-top: 20px; }
+.pub-sec h3 { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); margin: 0 4px 10px; }
+.pub-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
+.pub-card {
+  display: flex; align-items: center; gap: 10px;
+  min-width: 0;
+  padding: 9px 10px;
+  border-radius: 14px;
+  text-align: left;
+  background: rgba(255, 255, 255, .06);
+  box-shadow: inset 0 0 0 .5px rgba(255, 255, 255, .1);
+  transition: background .2s, transform .3s var(--ease-spring);
+}
+.pub-card:hover { background: rgba(255, 255, 255, .13); }
+.pub-card:active { transform: scale(.96); }
+.pub-badge {
+  flex: none;
+  width: 36px; height: 36px;
+  border-radius: 10px;
+  display: grid; place-items: center;
+  font-size: 15px; font-weight: 700; letter-spacing: .02em;
+  background: linear-gradient(160deg, rgba(122, 176, 255, .35), rgba(155, 123, 255, .22));
+  box-shadow: inset 0 0 0 .5px rgba(255, 255, 255, .25);
+}
+.pub-text { min-width: 0; display: flex; flex-direction: column; }
+.pub-label { font-weight: 600; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pub-sub { font-size: 11.5px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------- Guida dei programmi ---------- */
+
+.guide {
+  position: fixed; z-index: 45;
+  top: 0; left: 0; right: 0; bottom: 0;
+  /* A tutto schermo, fondo pieno: niente bordo di vetro. */
+  background: linear-gradient(180deg, #10131c, #07080d);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transform: scale(.98);
+  transition: opacity .3s var(--ease-out), transform .45s var(--ease-spring), visibility 0s .3s;
+}
+.guide-open .guide { opacity: 1; visibility: visible; pointer-events: auto; transform: none; transition: opacity .3s var(--ease-out), transform .45s var(--ease-spring); }
+.g-head { display: flex; align-items: center; gap: 12px; padding: calc(16px + var(--safe-top)) 22px 12px 28px; }
+.g-day { color: var(--text-3); font-weight: 600; font-size: 13px; text-transform: capitalize; }
+.g-nav { display: flex; gap: 6px; margin-left: auto; }
+.g-btn {
+  height: 34px;
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 0 14px;
+  border-radius: 17px;
+  font-weight: 600; font-size: 13px;
+  background: rgba(255, 255, 255, .08);
+  box-shadow: inset 0 0 0 .5px rgba(255, 255, 255, .16), inset 0 1px 0 rgba(255, 255, 255, .14);
+  transition: background .2s, transform .3s var(--ease-spring);
+}
+.g-btn:hover { background: rgba(255, 255, 255, .16); }
+.g-btn:active { transform: scale(.94); }
+.g-btn svg { width: 16px; height: 16px; stroke-width: 2.2; }
+#gPrev { padding-left: 9px; }
+#gNext { padding-right: 9px; }
+.tv .g-btn:focus { outline: 2.5px solid rgba(122, 176, 255, .95); outline-offset: 2px; background: rgba(255, 255, 255, .16); }
+.g-head h2 { font: 650 20px/1 "SF Pro Display", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif; letter-spacing: -.02em; }
+.g-clock { font-weight: 600; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.g-head .head-btn { margin-left: 4px; }
+.g-body { position: relative; flex: 1; overflow: auto; overscroll-behavior: contain; }
+.g-body::-webkit-scrollbar { width: 10px; height: 10px; }
+.g-body::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .16); border-radius: 10px; border: 3px solid transparent; background-clip: content-box; }
+.g-body::-webkit-scrollbar-corner { background: transparent; }
+.g-canvas { position: relative; }
+.g-ruler { position: sticky; top: 0; z-index: 3; height: 34px; background: #0d1017; }
+.g-mark.day { color: var(--accent); }
+.g-mark { position: absolute; top: 9px; font-size: 12px; font-weight: 600; color: var(--text-2); transform: translateX(4px); font-variant-numeric: tabular-nums; }
+.g-mark::before { content: ""; position: absolute; left: -4px; top: -2px; width: 1px; height: 22px; background: rgba(255, 255, 255, .14); }
+.g-now { position: absolute; top: 0; z-index: 2; width: 2px; margin-left: -1px; background: var(--live); box-shadow: 0 0 8px var(--live); pointer-events: none; }
+.g-row { position: absolute; left: 0; right: 0; height: 64px; }
+.g-name {
+  position: sticky; left: 0; z-index: 2;
+  width: 222px; height: 58px; margin-top: 3px;
+  display: flex; align-items: center; gap: 10px;
+  padding: 0 10px;
+  border-radius: 14px;
+  background: rgba(24, 27, 38, .96);
+  box-shadow: inset 0 0 0 .5px rgba(255, 255, 255, .08);
+  font-weight: 600; font-size: 13px;
+}
+.g-name > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.g-name.active { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.g-name .logo { width: 38px; height: 38px; border-radius: 10px; font-size: 13px; }
+.g-prog {
+  position: absolute; top: 3px; height: 58px;
+  display: flex; flex-direction: column; justify-content: center; gap: 2px;
+  padding: 0 10px;
+  border-radius: 12px;
+  text-align: left;
+  overflow: hidden;
+  background: rgba(255, 255, 255, .07);
+  box-shadow: inset 0 0 0 .5px rgba(255, 255, 255, .08);
+  transition: background .2s;
+}
+.g-prog:hover { background: rgba(255, 255, 255, .14); }
+.g-prog.now { background: linear-gradient(180deg, rgba(122, 176, 255, .34), rgba(74, 125, 255, .22)); }
+.g-prog.past { opacity: .5; }
+.g-prog.tiny { padding: 0; }
+.g-prog.tiny > span { display: none; }
+.g-title { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.g-time { font-size: 11.5px; color: var(--text-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.g-empty { position: absolute; top: 50%; left: 0; right: 0; text-align: center; color: var(--text-2); }
+.g-empty[hidden] { display: none; }
+.tv .g-prog:focus { outline: 2.5px solid rgba(122, 176, 255, .95); outline-offset: 1px; z-index: 1; }
+
+/* Con la guida aperta il video continua in un angolo (miniatura cliccabile, sopra la guida). */
+.video-wrap { transform-origin: 100% 100%; }
+.guide-open .stage { z-index: 46; pointer-events: none; }
+.guide-open .content, .guide-open .sidebar, .guide-open .sb-toggle, .guide-open .list-nav { visibility: hidden; }
+.guide-open .video-wrap {
+  transform: translate(-24px, -24px) scale(.25);
+  border-radius: 64px;
+  overflow: hidden;
+  background: #000;
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, .25), 0 60px 120px rgba(0, 0, 0, .7);
+  pointer-events: auto;
+  cursor: pointer;
+}
+.guide-open .ambient { opacity: 0; }
+
+/* ---------- Lettore nativo (versione legacy su Android) ---------- */
+
+/* Il video è disegnato da ExoPlayer sotto la pagina: dove non c'è interfaccia la pagina è
+   trasparente. Con la guida aperta niente può stare sopra la miniatura (le WebView vecchie non
+   sanno "bucare" un livello): la guida finisce sopra di lei e accanto c'è il riquadro "in onda". */
+html.native-video, html.native-video body { background: transparent; }
+html.native-video .ambient, html.native-video video { visibility: hidden; }
+html.native-video .guide-open .video-wrap { background: transparent; box-shadow: 0 0 0 4px rgba(255, 255, 255, .25); }
+html.native-video .guide-open .guide { bottom: calc(25vh + 36px); border-radius: 0 0 26px 26px; }
+.g-foot {
+  position: fixed; z-index: 45;
+  left: 12px; bottom: 12px; right: calc(25vw + 36px);
+  height: calc(25vh + 12px);
+  display: none; align-items: center; gap: 18px;
+  padding: 0 26px;
+  border-radius: 26px;
+}
+html.native-video .guide-open .g-foot { display: flex; }
+.g-foot .logo { width: 64px; height: 64px; border-radius: 18px; font-size: 20px; }
+.g-foot-text { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.g-foot-text small { color: var(--text-2); font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.g-foot-text strong { font: 650 20px/1.2 "SF Pro Display", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.g-foot-text span { color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
 /* ---------- Touch e telefoni (app Android) ---------- */
 
 /* Senza passaggio del mouse: azioni sempre visibili, ma solo "⋯" (fissa è nel menu,
@@ -806,9 +1028,17 @@ video::cue {
 
 /* Telefono: niente barra della finestra né schermo intero (l'app occupa già tutto). */
 .mobile .titlebar, .mobile #fsBtn { display: none; }
-.mobile .sidebar { top: calc(var(--gap) + env(safe-area-inset-top)); bottom: calc(var(--gap) + env(safe-area-inset-bottom)); }
-.mobile .sb-toggle { top: calc(22px + env(safe-area-inset-top)); }
-.mobile .toast { top: calc(16px + env(safe-area-inset-top)); }
+/* Margini di sicurezza (notch, barre di sistema) in variabili, con valore 0 dove env() non esiste:
+   nelle WebView vecchie (Chromium < 69) un calc() con var() ed env() diventa non valido solo al
+   momento del calcolo, e "top"/"bottom" tornerebbero ad "auto": il pannello si allungava quanto
+   l'intera lista e venivano disegnate tutte le righe, fino a bloccare la pagina. */
+:root { --safe-top: 0px; --safe-bottom: 0px; }
+@supports (top: env(safe-area-inset-top)) {
+  :root { --safe-top: env(safe-area-inset-top); --safe-bottom: env(safe-area-inset-bottom); }
+}
+.mobile .sidebar { top: calc(var(--gap) + var(--safe-top)); bottom: calc(var(--gap) + var(--safe-bottom)); }
+.mobile .sb-toggle { top: calc(22px + var(--safe-top)); }
+.mobile .toast { top: calc(16px + var(--safe-top)); }
 
 /* ---------- macOS: pulsanti nativi della finestra ---------- */
 
@@ -833,14 +1063,14 @@ video::cue {
   background-color: rgba(255, 255, 255, .16);
   box-shadow: 0 0 24px rgba(122, 176, 255, .45);
 }
-.tv .ch:focus, .tv .folder:focus { z-index: 2; }
+.tv .ch:focus, .tv .folder:focus { z-index: 2; outline-offset: -3px; }
 .tv .field:focus-within { outline: 2.5px solid rgba(122, 176, 255, .95); outline-offset: 2px; }
 
 @media (max-width: 720px) {
   /* Il pannello occupa la larghezza e si sovrappone al video. */
   :root { --sb-w: calc(100vw - var(--gap) * 2); }
   .content, .sb-closed .content { left: 0; }
-  .controls { width: calc(100% - 24px); bottom: calc(16px + env(safe-area-inset-bottom)); gap: 6px; padding: 0 8px; }
+  .controls { width: calc(100% - 24px); bottom: calc(16px + var(--safe-bottom)); gap: 6px; padding: 0 8px; }
   .volume { width: 72px; }
   .card strong { max-width: 60vw; }
   .empty { padding: 26px 20px 24px; }

@@ -10,7 +10,7 @@
   const els = {
     stage: $('stage'), list: $('list'), rows: $('rows'), listEmpty: $('listEmpty'), hl: $('hl'), count: $('count'), title: $('title'),
     srcBtn: $('srcBtn'), srcName: $('srcName'), srcHost: $('srcHost'), optionsBtn: $('optionsBtn'),
-    emptyForm: $('emptyForm'), emptyInput: $('emptyInput'), searchInput: $('searchInput'),
+    empty: $('empty'), emptyForm: $('emptyForm'), emptyInput: $('emptyInput'), searchInput: $('searchInput'),
     card: $('card'), cardLogo: $('cardLogo'), cardName: $('cardName'),
     spinner: $('spinner'), controls: $('controls'), nowLogo: $('nowLogo'), nowName: $('nowName'), nowProgram: $('nowProgram'),
     muteBtn: $('muteBtn'), volume: $('volume'), fsBtn: $('fsBtn'), subsBtn: $('subsBtn'), subCanvas: $('subCanvas'),
@@ -18,7 +18,13 @@
     refreshBtn: $('refreshBtn'), updatedAt: $('updatedAt'), statusTexts: document.querySelectorAll('.status-text'),
     fileInput: $('fileInput'), emptyFile: $('emptyFile'),
     menu: $('menu'),
-    preview: $('preview'), pvVideo: $('pvVideo'), pvName: $('pvName'), pvMsg: $('pvMsg'),
+    preview: $('preview'), pvVideo: $('pvVideo'), pvName: $('pvName'), pvMsg: $('pvMsg'), pvProg: $('pvProg'),
+    videoWrap: $('videoWrap'), topBtn: $('topBtn'), pageUp: $('pageUp'), pageDown: $('pageDown'),
+    publicLists: $('publicLists'), browseClose: $('browseClose'), guideBtn: $('guideBtn'),
+    guide: $('guide'), gBody: $('gBody'), gCanvas: $('gCanvas'), gRuler: $('gRuler'), gNow: $('gNow'),
+    gClock: $('gClock'), gClose: $('gClose'), gEmpty: $('gEmpty'), gDay: $('gDay'),
+    gPrev: $('gPrev'), gNowBtn: $('gNowBtn'), gNext: $('gNext'),
+    gFootLogo: $('gFootLogo'), gFootName: $('gFootName'), gFootProg: $('gFootProg'),
     dialog: $('dialog'), dialogScrim: $('dialogScrim'), dialogForm: $('dialogForm'), dialogIcon: $('dialogIcon'),
     dialogTitle: $('dialogTitle'), dialogText: $('dialogText'), dialogFields: $('dialogFields'),
     dialogCancel: $('dialogCancel'), dialogConfirm: $('dialogConfirm'),
@@ -31,11 +37,21 @@
   // Telefoni e schermi touch: niente passaggio del mouse, niente finestra da gestire.
   const touch = matchMedia('(hover: none)').matches;
   const mobile = /Android|iPhone|iPad/i.test(navigator.userAgent);
-  // Android TV: nessun dispositivo di puntamento, si naviga con il telecomando.
+  // Android TV: si naviga con il telecomando. Sui televisori l'app Android aggiunge "GlassPlayTV"
+  // allo user agent (MainActivity.kt); in mancanza conta l'assenza di touch screen. Le sole media
+  // query non bastano: molti box (es. Xiaomi Mi Box S) dichiarano il telecomando come puntatore,
+  // e l'app si comportava come sul computer (pannello che spariva e ricompariva a ogni tasto).
   // localStorage "glassplay.tv" = "true" forza la modalità (per provarla su altri dispositivi).
   let forcedTv = false;
   try { forcedTv = localStorage.getItem('glassplay.tv') === 'true'; } catch { /* storage non disponibile */ }
-  const tv = forcedTv || (mobile && matchMedia('(pointer: none)').matches);
+  const tv = forcedTv || /GlassPlayTV/.test(navigator.userAgent)
+    || (mobile && (navigator.maxTouchPoints === 0 || matchMedia('(pointer: none)').matches));
+  // Versione "legacy" per dispositivi poco potenti (cartella legacy/, la attiva legacy/lite.js):
+  // niente anteprime video, effetti grafici ridotti, buffer del lettore più piccoli.
+  const lite = window.GLASSPLAY_LITE === true;
+  // Versione legacy su Android: il video lo riproduce ExoPlayer (MainActivity.kt) sotto la
+  // pagina, con i decoder hardware del box; hls.js non regge l'alta definizione su quei processori.
+  const nativePlayer = lite && window.GlassPlayNative ? window.GlassPlayNative : null;
   const narrow = () => matchMedia('(max-width: 720px)').matches;
   // macOS: la finestra usa i pulsanti nativi (semaforo) al posto di quelli disegnati dall'app.
   const mac = !mobile && /Macintosh|Mac OS X/i.test(navigator.userAgent);
@@ -43,6 +59,12 @@
   document.body.classList.toggle('touch', touch || tv);
   document.body.classList.toggle('mobile', mobile);
   document.body.classList.toggle('tv', tv);
+  document.body.classList.toggle('lite', lite);
+  // La versione legacy non ha l'anteprima al passaggio: via anche il suo secondo lettore video.
+  if (lite) {
+    els.preview.remove();
+    els.preview = null;
+  }
   const proxify = (url) => (url.startsWith(PROXY) ? url : `${PROXY}?u=${encodeURIComponent(url)}`);
 
   const store = {
@@ -60,17 +82,21 @@
   const state = {
     sources: [],   // liste salvate
     active: null,  // id della lista attiva
-    channels: [],
+    serial: 0,     // lista aperta in Rust (0 = nessuna), vedi "Canali"
+    total: 0,      // numero di canali della lista aperta
     updatedAt: 0,  // ultimo download della lista attiva (secondi Unix)
-    current: -1,
+    current: -1,   // indice del canale in riproduzione
+    playing: null, // canale in riproduzione: { name, image, stream, group }
     hls: null,
     token: 0,
     hasPlayed: false,
     volume: store.get('volume', 0.8),
     muted: store.get('muted', false),
-    previewOn: store.get('preview', true),
-    // Sperimentale: per ora l'opzione viene solo memorizzata.
-    proxyMask: store.get('proxyMask', false),
+    previewOn: !lite && store.get('preview', true),
+    // Proxy per tutto il traffico (configurazione salvata in Rust).
+    proxy: { enabled: false, url: '', username: '', password: '' },
+    // Guida dei programmi caricata per la lista aperta: { serial, channels, programmes, at }.
+    guide: null,
   };
 
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -134,6 +160,8 @@
     if (state.updatedAt) els.updatedAt.textContent = formatUpdated(state.updatedAt);
     renderProgram();
     rebuild({ keepScroll: true });
+    if (publicVisible()) renderPublicLists();
+    if (gv.open) refreshGuide();
   }
 
   // ---------- Icone ----------
@@ -195,7 +223,8 @@
     img.alt = '';
     img.referrerPolicy = 'no-referrer';
     img.onerror = fallback;
-    img.src = ch.image;
+    // Con il proxy attivo anche i loghi passano da lì (attraverso Rust).
+    img.src = state.proxy.enabled ? proxify(ch.image) : ch.image;
     el.append(img);
   }
 
@@ -209,6 +238,7 @@
   const org = {
     data: { folders: [], pinned: [] },
     where: new Map(), // stream -> id cartella | PIN
+    idx: new Map(),   // stream -> posizione del canale nella lista aperta (-1 se non c'è)
     pending: null,    // salvataggio in attesa { id, timer }
   };
 
@@ -226,7 +256,15 @@
     org.where.clear();
     for (const f of org.data.folders) for (const s of f.items) org.where.set(s, f.id);
     for (const s of org.data.pinned) org.where.set(s, PIN);
+    // Canali già in una cartella o tra i fissati: non si ripetono nella lista principale.
+    list.filed = new Uint8Array(state.total);
+    for (const s of org.where.keys()) {
+      const i = org.idx.get(s);
+      if (i >= 0) list.filed[i] = 1;
+    }
   }
+
+  const inList = (stream) => org.idx.get(stream) >= 0;
 
   function saveOrg() {
     if (org.pending) clearTimeout(org.pending.timer);
@@ -343,18 +381,80 @@
     orgChanged();
   }
 
+  // ---------- Canali (tenuti in Rust) ----------
+  //
+  // La lista vive in Rust (store.rs) in forma compatta: la WebView riceve solo i canali che
+  // le servono (righe visibili, canale in riproduzione) e li tiene qui finché restano utili.
+  // Con 300.000 canali la memoria della WebView passa da centinaia di MB a pochi MB.
+
+  const chans = new Map(); // indice -> { name, image, stream, group }
+  const asked = new Set(); // indici chiesti a Rust e non ancora arrivati
+  const KEEP_CHANNELS = 3000;
+
+  /** Chiede a Rust i canali `indices` della lista aperta. */
+  async function fetchChannels(indices) {
+    const serial = state.serial;
+    for (const i of indices) asked.add(i);
+    try {
+      const got = await invoke('channels', { serial, indices });
+      if (serial !== state.serial) return; // nel frattempo è stata aperta un'altra lista
+      // Con la guida caricata, anche il programma in onda (mostrato sotto il nome).
+      const now = state.guide?.serial === serial ? await invoke('guide_now', { serial, indices }).catch(() => null) : null;
+      if (serial !== state.serial) return;
+      indices.forEach((i, k) => {
+        if (!got[k]) return;
+        got[k].now = now?.[k] || null;
+        chans.set(i, got[k]);
+      });
+    } finally {
+      if (serial === state.serial) for (const i of indices) asked.delete(i);
+    }
+  }
+
+  /** Il canale `i`, chiedendolo a Rust se non è già qui. */
+  async function getChannel(i) {
+    if (!chans.has(i)) await fetchChannels([i]).catch(() => {});
+    return chans.get(i);
+  }
+
+  /** Stream del canale `i` (visibile), ricordandone la posizione per cartelle e fissati. */
+  function streamAt(i) {
+    const s = chans.get(Number(i)).stream;
+    if (!inList(s)) org.idx.set(s, Number(i));
+    return s;
+  }
+
+  /** Lista appena aperta in Rust: i canali della precedente non valgono più. */
+  function resetChannels(serial, total) {
+    state.serial = serial;
+    state.total = total;
+    chans.clear();
+    asked.clear();
+    list.hits = null;
+    list.query = '';
+  }
+
+  /** Tiene in memoria solo i canali vicini alla parte visibile (e quello in riproduzione). */
+  function trimChannels(from, to) {
+    const keep = new Set();
+    for (let p = Math.max(0, from); p < Math.min(list.n, to); p++) if (list.kind[p] === K_CH) keep.add(list.ref[p]);
+    for (const i of chans.keys()) if (!keep.has(i) && i !== state.current) chans.delete(i);
+  }
+
   // ---------- Lista canali (virtuale) ----------
   //
   // Anche con centinaia di migliaia di canali il DOM contiene solo le righe visibili.
   // La vista è un elenco di righe di tre tipi (sezione, cartella, canale) con altezze
   // diverse: `top` contiene la posizione di ogni riga, così la ricerca della prima riga
-  // visibile è una ricerca binaria.
+  // visibile è una ricerca binaria. I dati dei canali arrivano da Rust man mano che
+  // le righe diventano visibili (con un margine sopra e sotto, chiesto in anticipo).
 
   const K_CH = 0;
   const K_FOLDER = 1;
   const K_SEC = 2;
   const HEIGHT = [60, 50, 30]; // deve coincidere con .ch, .folder e .sec in style.css
-  const OVERSCAN_PX = 360;
+  const OVERSCAN_PX = lite ? 180 : 360;
+  const PREFETCH = 40; // righe chieste in anticipo, sopra e sotto quelle visibili
 
   const list = {
     kind: new Uint8Array(0),
@@ -363,19 +463,20 @@
     top: new Float64Array(1),
     n: 0,
     posOf: new Int32Array(0),  // indice canale -> posizione nella vista (-1 se assente)
+    filed: new Uint8Array(0),  // 1 se il canale sta in una cartella o tra i fissati
     secs: [],
     matches: 0,
-    query: '',
-    search: [],                // per ogni canale: nome + gruppo in minuscolo
-    streamIdx: new Map(),      // stream -> indice canale
+    query: '',                 // ricerca a cui si riferiscono `hits`
+    hits: null,                // risultati della ricerca (Uint32Array), null senza ricerca
     rows: new Map(),           // posizione -> riga nel DOM
+    loading: null,             // richiesta in corso dei canali visibili
     animate: false,
     frame: 0,
   };
 
   function buildView() {
-    const q = els.searchInput.value.trim().toLowerCase();
-    const total = state.channels.length;
+    const q = list.hits ? list.query : '';
+    const total = state.total;
     const { folders, pinned } = org.data;
     const cap = total + folders.length + 3;
     const kind = new Uint8Array(cap);
@@ -387,13 +488,13 @@
     const push = (k, r, nest = 0) => { kind[n] = k; ref[n] = r; nested[n] = nest; n++; };
     const section = (label, drop) => { secs.push({ label, drop }); push(K_SEC, secs.length - 1); };
     const pushStream = (s, nest) => {
-      const i = list.streamIdx.get(s);
-      if (i !== undefined) push(K_CH, i, nest);
+      const i = org.idx.get(s);
+      if (i >= 0) push(K_CH, i, nest);
     };
 
     if (q) {
-      // Ricerca: risultati in un'unica lista, ovunque si trovino.
-      for (let i = 0; i < total; i++) if (list.search[i].includes(q)) push(K_CH, i);
+      // Ricerca (fatta in Rust): risultati in un'unica lista, ovunque si trovino.
+      for (const i of list.hits) push(K_CH, i);
       matches = n;
     } else {
       if (folders.length) {
@@ -408,8 +509,8 @@
         for (const s of pinned) pushStream(s, 0);
       }
       if (folders.length || pinned.length) section(tr('sec.all'), 'all');
-      const { channels } = state;
-      for (let i = 0; i < total; i++) if (!org.where.has(channels[i].stream)) push(K_CH, i);
+      const { filed } = list;
+      for (let i = 0; i < total; i++) if (!filed[i]) push(K_CH, i);
     }
 
     const top = new Float64Array(n + 1);
@@ -420,7 +521,7 @@
   }
 
   function channelRow(i, pos) {
-    const ch = state.channels[i];
+    const ch = chans.get(i);
     const pinned = org.where.get(ch.stream) === PIN;
     const row = h('div', 'ch');
     row.classList.toggle('active', i === state.current);
@@ -433,7 +534,8 @@
     const logo = h('div', 'logo');
     fillLogo(logo, ch);
     const meta = h('div', 'meta');
-    meta.append(h('span', 'name', ch.name), h('span', 'group', ch.group || ''));
+    // Sotto il nome: il programma in onda (dalla guida) o, in mancanza, il gruppo.
+    meta.append(h('span', 'name', ch.name), ch.now ? h('span', 'group prog', ch.now.title) : h('span', 'group', ch.group || ''));
     const eq = h('span', 'eq');
     eq.innerHTML = '<i></i><i></i><i></i>';
     const acts = h('div', 'acts');
@@ -454,7 +556,7 @@
     row.dataset.f = fi;
     row.draggable = true;
     row.tabIndex = -1;
-    const count = f.items.reduce((n, s) => n + (list.streamIdx.has(s) ? 1 : 0), 0);
+    const count = f.items.reduce((n, s) => n + (inList(s) ? 1 : 0), 0);
     row.innerHTML = `${ICONS.chev}<span class="f-icon">${ICONS.folder}</span>`;
     row.append(h('span', 'f-name', f.name), h('span', 'f-count', fmtInt(count)));
     const acts = h('div', 'acts');
@@ -496,7 +598,10 @@
     list.frame = 0;
     const top = els.list.scrollTop;
     const start = posAt(Math.max(0, top - OVERSCAN_PX));
-    const end = Math.min(list.n, posAt(top + els.list.clientHeight + OVERSCAN_PX) + 1);
+    // Mai più di una schermata: se un problema di impaginazione allungasse il pannello quanto
+    // la lista, verrebbero create tutte le righe (centinaia di migliaia) e la pagina si bloccherebbe.
+    const height = Math.min(els.list.clientHeight, innerHeight);
+    const end = Math.min(list.n, posAt(top + height + OVERSCAN_PX) + 1);
 
     for (const [pos, row] of list.rows) {
       if (pos < start || pos >= end) {
@@ -505,8 +610,11 @@
       }
     }
     const frag = document.createDocumentFragment();
+    let missing = false;
     for (let pos = start; pos < end; pos++) {
       if (list.rows.has(pos)) continue;
+      // Canale non ancora arrivato da Rust: la riga compare appena c'è.
+      if (list.kind[pos] === K_CH && !chans.has(list.ref[pos])) { missing = true; continue; }
       const row = buildRow(pos);
       if (list.animate) {
         row.classList.add('enter');
@@ -516,7 +624,32 @@
       frag.append(row);
     }
     els.rows.append(frag);
-    list.animate = false;
+    if (!missing) list.animate = false;
+    requestRows(start, end);
+    if (chans.size > KEEP_CHANNELS) trimChannels(start - PREFETCH * 2, end + PREFETCH * 2);
+  }
+
+  /** Chiede a Rust i canali delle righe tra `start` e `end` (più un margine) che mancano. */
+  function requestRows(start, end) {
+    const need = [];
+    for (let p = Math.max(0, start - PREFETCH); p < Math.min(list.n, end + PREFETCH); p++) {
+      if (list.kind[p] !== K_CH) continue;
+      const i = list.ref[p];
+      if (!chans.has(i) && !asked.has(i)) need.push(i);
+    }
+    if (!need.length) return;
+    const loading = fetchChannels(need).then(() => {
+      if (list.loading === loading) list.loading = null;
+      scheduleRows();
+    }, () => {});
+    list.loading = loading;
+  }
+
+  /** Disegna subito le righe visibili, aspettando i canali che mancano (apertura di una lista). */
+  async function renderNow() {
+    renderRows();
+    if (list.loading) await list.loading;
+    renderRows();
   }
 
   function scheduleRows() {
@@ -535,7 +668,7 @@
     const focusedRow = document.activeElement?.closest?.('#rows > .ch, #rows > .folder');
     const refocus = focusedRow ? (focusedRow.dataset.i !== undefined ? `[data-i="${focusedRow.dataset.i}"]` : `[data-f="${focusedRow.dataset.f}"]`) : null;
     buildView();
-    const total = state.channels.length;
+    const total = state.total;
     els.rows.style.height = `${list.top[list.n]}px`;
     els.listEmpty.hidden = list.n > 0 || total === 0;
     els.count.textContent = !total ? ''
@@ -573,7 +706,7 @@
     else if (y + rowH > top + height) target = y + rowH * 2 - height;
     else return;
     // Salti lunghi senza animazione: scorrere migliaia di righe in "smooth" sarebbe lento.
-    const smooth = !instant && Math.abs(target - top) < 3000;
+    const smooth = !instant && !lite && Math.abs(target - top) < 3000;
     els.list.scrollTo({ top: Math.max(0, target), behavior: smooth ? 'smooth' : 'auto' });
   }
 
@@ -651,34 +784,82 @@
     return r;
   }
 
-  function applyChannels({ channels, updated_at: updatedAt }, rawOrg) {
-    const playing = state.channels[state.current]?.stream;
-    state.channels = channels;
+  /** Mostra la lista appena aperta in Rust ({ serial, count, updated_at }). */
+  async function applyChannels({ serial, count, updated_at: updatedAt }, rawOrg) {
+    const playing = state.playing?.stream;
+    resetChannels(serial, count);
     state.updatedAt = updatedAt;
-    list.streamIdx = new Map();
-    channels.forEach((c, i) => { if (!list.streamIdx.has(c.stream)) list.streamIdx.set(c.stream, i); });
-    state.current = playing ? (list.streamIdx.get(playing) ?? -1) : -1;
-    list.search = channels.map((c) => `${c.name}\n${c.group || ''}`.toLowerCase());
     org.data = normalizeOrg(rawOrg);
+    // Posizione nella lista dei canali salvati, dell'ultimo visto e di quello in riproduzione.
+    const streams = new Set(org.data.pinned);
+    for (const f of org.data.folders) for (const s of f.items) streams.add(s);
+    for (const s of [playing, store.get('last', null)]) if (typeof s === 'string') streams.add(s);
+    const wanted = [...streams];
+    const found = wanted.length ? await invoke('find_streams', { serial, streams: wanted }).catch(() => []) : [];
+    if (serial !== state.serial) return;
+    org.idx = new Map(wanted.map((s, k) => [s, found[k]]));
+    state.current = playing && inList(playing) ? org.idx.get(playing) : -1;
     indexOrg();
     els.updatedAt.textContent = formatUpdated(updatedAt);
     body.classList.add('has-source');
-    list.animate = true;
+    list.animate = !lite;
     rebuild();
     markActive(true);
+    await renderNow();
+    // Lista riscaricata con una ricerca in corso: i risultati vanno ricalcolati.
+    if (els.searchInput.value.trim()) runSearch();
+    loadGuide();
   }
+
+  // ---------- Guida dei programmi (dati) ----------
+  //
+  // Si carica in sottofondo dopo la lista (Rust la scarica al massimo ogni 6 ore): da lì
+  // vengono il programma in onda sotto ogni canale, la ricerca per programma e la pagina guida.
+
+  const GUIDE_REFRESH = 3 * 3600e3;
+
+  async function loadGuide() {
+    const { serial, active: id } = state;
+    if (!serial || !id) return;
+    let info = null;
+    try { info = await invoke('load_guide', { id, serial }); } catch { /* lista senza guida */ }
+    if (serial !== state.serial) return;
+    state.guide = info && info.channels ? { serial, at: Date.now(), ...info } : null;
+    body.classList.toggle('has-guide', !!state.guide);
+    if (state.guide) refreshNow();
+  }
+
+  /** Aggiorna i programmi in onda nelle righe (e i risultati di una ricerca per programma). */
+  function refreshNow() {
+    chans.clear();
+    asked.clear();
+    rebuild({ keepScroll: true });
+    if (list.query) runSearch();
+    if (gv.open) refreshGuide();
+  }
+
+  // Ogni 5 minuti i programmi in onda cambiano; ogni 3 ore si ricarica la guida.
+  setInterval(() => {
+    if (!state.guide || document.hidden) return;
+    if (Date.now() - state.guide.at > GUIDE_REFRESH) loadGuide();
+    else refreshNow();
+  }, 5 * 60e3);
 
   /** Nessuna lista: torna alla schermata di benvenuto. */
   function clearChannels() {
     state.token++;
     teardown();
     setLoading(false);
-    state.channels = [];
+    resetChannels(0, 0);
+    invoke('close_list').catch(() => {});
+    state.guide = null;
+    body.classList.remove('has-guide');
+    closeGuide();
     state.updatedAt = 0;
     state.current = -1;
-    list.streamIdx = new Map();
-    list.search = [];
+    state.playing = null;
     org.data = normalizeOrg(null);
+    org.idx = new Map();
     indexOrg();
     body.classList.remove('has-source', 'has-channel', 'is-playing', 'switching');
     resetProgram();
@@ -688,8 +869,8 @@
 
   function resumeLast() {
     if (state.current >= 0) return;
-    const i = list.streamIdx.get(store.get('last', null));
-    if (i !== undefined) play(i);
+    const last = store.get('last', null);
+    if (inList(last)) play(org.idx.get(last));
   }
 
   /** Esegue `task` mostrando la riga di stato; gli errori finiscono in un toast. */
@@ -713,8 +894,8 @@
     return busy(tr('status.connecting'), async () => {
       const result = await invoke('load_channels', { id });
       if (state.active !== id) return;
-      applyChannels(result, rawOrg);
-      toast(tr('toast.listUpdated', { count: fmtInt(result.channels.length) }), { kind: 'success' });
+      await applyChannels(result, rawOrg);
+      toast(tr('toast.listUpdated', { count: fmtInt(result.count) }), { kind: 'success' });
     });
   }
 
@@ -727,9 +908,9 @@
     let loaded = false;
     if (!forceDownload) {
       await busy(tr('status.opening'), async () => {
-        const cached = await invoke('cached_channels', { id });
-        if (cached && state.active === id) {
-          applyChannels(cached, rawOrg);
+        const opened = await invoke('open_list', { id });
+        if (opened && state.active === id) {
+          await applyChannels(opened, rawOrg);
           loaded = true;
         }
       });
@@ -777,9 +958,9 @@
     hidePreview();
     els.searchInput.value = '';
     await refreshSources();
-    applyChannels(added, null);
+    await applyChannels(added, null);
     if (narrow() || tv) setSidebar(true); // si vedono subito i canali della nuova lista
-    toast(tr('toast.listAdded', { count: fmtInt(added.channels.length) }), { kind: 'success' });
+    toast(tr('toast.listAdded', { count: fmtInt(added.count) }), { kind: 'success' });
   }
 
   // ---------- Liste da file M3U ----------
@@ -803,11 +984,11 @@
         await showAdded(await invoke('add_source_file', { name: '', fileName: file.name, content }));
         return;
       }
-      const list = await invoke('replace_source_file', { id: target, fileName: file.name, content });
+      const opened = await invoke('replace_source_file', { id: target, fileName: file.name, content });
       await refreshSources();
       if (state.active !== target) return;
-      applyChannels(list, org.data);
-      toast(tr('toast.listUpdated', { count: fmtInt(list.channels.length) }), { kind: 'success' });
+      await applyChannels(opened, org.data);
+      toast(tr('toast.listUpdated', { count: fmtInt(opened.count) }), { kind: 'success' });
     });
   });
 
@@ -865,6 +1046,7 @@
       '-',
       { label: tr('menu.addList'), icon: ICONS.plus, action: addSource },
       { label: tr('menu.addFile'), icon: ICONS.file, action: () => pickFile() },
+      { label: tr('menu.discover'), icon: ICONS.globe, action: openBrowse },
     );
     openMenu(items, els.srcBtn.getBoundingClientRect(), { minWidth: els.srcBtn.offsetWidth, anchor: els.srcBtn });
   }
@@ -881,8 +1063,9 @@
 
   function optionsMenu() {
     const current = langPref === 'auto' ? tr('opt.langAuto') : I18N.names[langPref];
-    // L'anteprima al passaggio richiede un mouse: su telefono e TV l'opzione non serve.
-    const preview = touch || tv ? [] : [{
+    // L'anteprima al passaggio richiede un mouse: su telefono e TV l'opzione non serve
+    // (e la versione legacy non ce l'ha).
+    const preview = touch || tv || !els.preview ? [] : [{
       label: tr('opt.preview'), sub: tr('opt.previewSub'), icon: ICONS.eye, toggle: state.previewOn, keepOpen: true,
       action: toggleItem('preview', 'previewOn', () => { if (!state.previewOn) hidePreview(); }),
     }];
@@ -891,11 +1074,185 @@
       ...preview,
       { label: tr('opt.language'), sub: current, icon: ICONS.globe, action: languageMenu },
       '-',
-      {
-        label: tr('opt.proxy'), sub: tr('opt.proxySub'), icon: ICONS.shield, toggle: state.proxyMask, keepOpen: true,
-        action: toggleItem('proxyMask', 'proxyMask'),
-      },
+      { label: tr('opt.proxy'), sub: proxyLabel(), icon: ICONS.shield, toggle: state.proxy.enabled, action: toggleProxy },
+      { label: tr('opt.proxySettings'), icon: ICONS.edit, action: proxyDialog },
     ], els.optionsBtn.getBoundingClientRect(), { align: 'end', anchor: els.optionsBtn });
+  }
+
+  // ---------- Proxy ----------
+  //
+  // Con il proxy attivo tutto il traffico dell'app (liste, guida, video, loghi) esce dal
+  // server indicato: i siti vedono il suo indirizzo IP invece di quello di casa.
+
+  function proxyLabel() {
+    if (!state.proxy.enabled) return tr('opt.proxyOff');
+    try { return new URL(state.proxy.url).host; } catch { return state.proxy.url; }
+  }
+
+  async function applyProxy(config, test) {
+    try {
+      await invoke('set_proxy', { proxy: config });
+      state.proxy = config;
+      nativeProxy();
+      // I loghi già a schermo vanno richiesti di nuovo per la nuova strada.
+      clearRows();
+      renderRows();
+      if (state.current >= 0 && nativePlayer) reloadChannel();
+      if (!config.enabled) { toast(tr('toast.proxyOff')); return; }
+      if (test) {
+        toast(tr('toast.proxyTesting'));
+        const ip = await invoke('test_proxy');
+        toast(tr('toast.proxyOk', { ip }), { kind: 'success' });
+      }
+    } catch (err) {
+      toast(tr('toast.proxyFail', { error: errText(err) }), { kind: 'error' });
+    }
+  }
+
+  async function proxyDialog() {
+    const p = state.proxy;
+    const v = await dialog({
+      title: tr('dlg.proxy'),
+      text: tr('dlg.proxyText'),
+      fields: [
+        { name: 'url', label: tr('dlg.proxyUrl'), placeholder: 'socks5://192.168.1.10:1080', value: p.url, required: true },
+        { name: 'username', label: tr('dlg.proxyUser'), value: p.username },
+        { name: 'password', label: tr('dlg.proxyPass'), type: 'password', value: p.password },
+      ],
+      confirm: tr('dlg.proxySave'),
+    });
+    if (v) await applyProxy({ enabled: true, url: v.url, username: v.username, password: v.password }, true);
+  }
+
+  function toggleProxy() {
+    if (!state.proxy.enabled && !state.proxy.url) return proxyDialog();
+    return applyProxy({ ...state.proxy, enabled: !state.proxy.enabled }, !state.proxy.enabled);
+  }
+
+  /** Il lettore nativo ha una sua connessione: gli si passa lo stesso proxy. */
+  function nativeProxy() {
+    if (!nativePlayer) return;
+    const p = state.proxy;
+    let type = '';
+    let host = '';
+    let port = 0;
+    if (p.enabled) {
+      try {
+        const u = new URL(p.url);
+        type = /^socks/.test(u.protocol) ? 'socks' : 'http';
+        host = u.hostname;
+        port = Number(u.port) || 80;
+      } catch { /* indirizzo non valido: Rust l'ha già rifiutato */ }
+    }
+    nativePlayer.setProxy(type, host, port, p.username || '', p.password || '');
+  }
+
+  /** Il lettore nativo non sa parlare con i proxy https://: in quel caso si usa hls.js. */
+  const useNative = () => !!nativePlayer && !(state.proxy.enabled && /^https:/i.test(state.proxy.url));
+
+  // ---------- Liste pubbliche ----------
+  //
+  // Senza liste (e dal menu delle liste) si possono aggiungere liste libere e legali raccolte
+  // da volontari: iptv-org (per paese e per categoria) e Free-TV.
+
+  const IPTV_ORG = 'https://iptv-org.github.io/iptv';
+  const CATEGORIES = [
+    ['news', '📰'], ['sports', '⚽'], ['movies', '🎬'], ['series', '🎞'], ['kids', '🧸'], ['music', '🎵'],
+    ['documentary', '🌍'], ['entertainment', '🎭'], ['culture', '🏛'], ['comedy', '😄'], ['religious', '🕊'], ['weather', '⛅'],
+  ];
+  // Paese predefinito per lingua, se il sistema non indica la regione.
+  const LANG_COUNTRY = { it: 'IT', en: 'US', es: 'ES', fr: 'FR', de: 'DE', ro: 'RO', pl: 'PL', ru: 'RU', uk: 'UA', tr: 'TR', zh: 'CN', ja: 'JP', ko: 'KR' };
+  let countries = null; // [{ name, code }] dal catalogo iptv-org
+  let countriesAsked = false;
+
+  function homeCountry() {
+    for (const l of navigator.languages || [navigator.language]) {
+      const m = /^[a-z]{2,3}[-_]([a-z]{2})$/i.exec(String(l));
+      if (m) return m[1].toUpperCase();
+    }
+    return LANG_COUNTRY[lang] || 'US';
+  }
+
+  /** Nome del paese nella lingua dell'interfaccia (se la WebView lo sa fare), altrimenti in inglese. */
+  function countryName(code, fallback) {
+    try { return new Intl.DisplayNames([lang], { type: 'region' }).of(code) || fallback; } catch { return fallback; }
+  }
+
+  function publicCard(badge, label, sub, url, listName) {
+    const b = h('button', 'pub-card');
+    b.type = 'button';
+    b.append(h('span', 'pub-badge', badge));
+    const text = h('span', 'pub-text');
+    text.append(h('span', 'pub-label', label), h('span', 'pub-sub', sub));
+    b.append(text);
+    b.addEventListener('click', () => {
+      closeBrowse();
+      createSource(listName, url);
+    });
+    return b;
+  }
+
+  function publicSection(title, cards, cls = '') {
+    const sec = h('section', `pub-sec ${cls}`);
+    sec.append(h('h3', null, title));
+    const grid = h('div', 'pub-grid');
+    grid.append(...cards);
+    sec.append(grid);
+    return sec;
+  }
+
+  function renderPublicLists() {
+    const home = homeCountry();
+    const homeInfo = countries && countries.find((c) => c.code === home);
+    const homeName = countryName(home, homeInfo ? homeInfo.name : home);
+    const countryUrl = (code) => `${IPTV_ORG}/countries/${code.toLowerCase()}.m3u`;
+    const out = [h('p', 'pub-note', tr('pub.note'))];
+    out.push(publicSection(tr('pub.yours'), [
+      publicCard(home, homeName, tr('pub.countrySub'), countryUrl(home), `${homeName} · iptv-org`),
+    ]));
+    out.push(publicSection(tr('pub.categories'), CATEGORIES.map(([id, icon]) => {
+      const name = tr(`cat.${id}`);
+      return publicCard(icon, name, 'iptv-org', `${IPTV_ORG}/categories/${id}.m3u`, `${name} · iptv-org`);
+    })));
+    out.push(publicSection(tr('pub.collections'), [
+      publicCard('🌐', tr('pub.all'), tr('pub.allSub'), `${IPTV_ORG}/index.m3u`, 'iptv-org'),
+      publicCard('📺', 'Free-TV', tr('pub.freetvSub'), 'https://raw.githubusercontent.com/Free-TV/IPTV/master/playlist.m3u8', 'Free-TV'),
+    ]));
+    if (countries) {
+      const sorted = countries
+        .map((c) => ({ code: c.code, name: countryName(c.code, c.name) }))
+        .sort((a, b) => a.name.localeCompare(b.name, lang));
+      out.push(publicSection(tr('pub.countries'), sorted.map((c) => publicCard(c.code, c.name, 'iptv-org', countryUrl(c.code), `${c.name} · iptv-org`)), 'countries'));
+    } else {
+      out.push(h('p', 'pub-note', tr('pub.loading')));
+    }
+    els.publicLists.replaceChildren(...out);
+    if (!countriesAsked) {
+      countriesAsked = true;
+      invoke('public_countries')
+        .then((all) => {
+          countries = (Array.isArray(all) ? all : []).filter((c) => c && /^[A-Z]{2}$/.test(c.code)).map((c) => ({ code: c.code, name: String(c.name || c.code) }));
+          if (publicVisible()) renderPublicLists();
+        })
+        .catch(() => { countriesAsked = false; });
+    }
+  }
+
+  const browsing = () => body.classList.contains('browsing');
+  const publicVisible = () => browsing() || !body.classList.contains('has-source');
+
+  function openBrowse() {
+    rememberFocus();
+    body.classList.add('browsing');
+    renderPublicLists();
+    els.empty.scrollTop = 0;
+    if (tv) setTimeout(() => { const first = els.publicLists.querySelector('.pub-card'); if (first) focusItem(first); }, 60);
+  }
+
+  function closeBrowse() {
+    if (!browsing()) return;
+    body.classList.remove('browsing');
+    restoreFocus();
   }
 
   function languageMenu() {
@@ -994,18 +1351,20 @@
   window.addEventListener('blur', closeMenu);
 
   function channelMenu(i, rect) {
-    const ch = state.channels[i];
-    const at = org.where.get(ch.stream);
+    const ch = chans.get(i);
+    if (!ch) return;
+    const stream = streamAt(i);
+    const at = org.where.get(stream);
     const items = [
       { header: ch.name },
-      { label: tr(at === PIN ? 'act.unpin' : 'act.pin'), icon: ICONS.pin, action: () => togglePin(ch.stream) },
+      { label: tr(at === PIN ? 'act.unpin' : 'act.pin'), icon: ICONS.pin, action: () => togglePin(stream) },
     ];
-    if (at && at !== PIN) items.push({ label: tr('menu.unfile'), icon: ICONS.out, action: () => unfile(ch.stream) });
+    if (at && at !== PIN) items.push({ label: tr('menu.unfile'), icon: ICONS.out, action: () => unfile(stream) });
     items.push('-', { header: tr('menu.moveTo') });
     for (const f of org.data.folders) {
-      items.push({ label: f.name, icon: ICONS.folder, disabled: at === f.id, action: () => moveToFolder(ch.stream, f.id) });
+      items.push({ label: f.name, icon: ICONS.folder, disabled: at === f.id, action: () => moveToFolder(stream, f.id) });
     }
-    items.push({ label: tr('menu.newFolder'), icon: ICONS.folderPlus, action: () => createFolder(ch.stream) });
+    items.push({ label: tr('menu.newFolder'), icon: ICONS.folderPlus, action: () => createFolder(stream) });
     openMenu(items, rect, { align: 'end' });
   }
 
@@ -1112,14 +1471,16 @@
   function showPreview(row) {
     if (touch || !state.previewOn || menu.open || dialogOpen() || drag || !row.isConnected || !sidebarOpen()) return;
     const i = Number(row.dataset.i);
-    if (i === state.current) return;
-    const ch = state.channels[i];
+    const ch = chans.get(i);
+    if (i === state.current || !ch) return;
     const token = ++pv.token;
     pv.shown = true;
 
     const p = els.preview;
     els.pvName.textContent = ch.name;
     els.pvMsg.textContent = '';
+    els.pvProg.textContent = '';
+    previewProgram(ch, token);
     p.classList.remove('playing', 'failed');
     const r = row.getBoundingClientRect();
     const sb = els.sidebar.getBoundingClientRect();
@@ -1128,6 +1489,13 @@
     p.style.top = `${clamp(r.top + r.height / 2 - hgt / 2, 12, innerHeight - hgt - 12)}px`;
     p.classList.add('show');
     previewTry([hlsVariant(ch.stream), ch.stream].filter(Boolean), token);
+  }
+
+  /** Programma in onda sotto il nome dell'anteprima: dalla guida o dal pannello Xtream. */
+  async function previewProgram(ch, token) {
+    let title = ch.now?.title;
+    if (!title) title = (await invoke('program_info', { stream: ch.stream }).catch(() => null))?.title;
+    if (token === pv.token && title) els.pvProg.textContent = title;
   }
 
   function previewFailed() {
@@ -1186,13 +1554,16 @@
     stopPreviewMedia();
   }
 
-  els.pvVideo.muted = true;
-  els.pvVideo.addEventListener('playing', () => { if (pv.shown) els.preview.classList.add('playing'); });
-  els.list.addEventListener('mouseover', (e) => {
-    const row = e.target.closest('.ch');
-    if (row !== pv.row) schedulePreview(row);
-  });
-  els.list.addEventListener('mouseleave', () => schedulePreview(null));
+  // Nella versione legacy l'anteprima non c'è proprio (né il suo secondo lettore video).
+  if (els.preview && !touch && !tv) {
+    els.pvVideo.muted = true;
+    els.pvVideo.addEventListener('playing', () => { if (pv.shown) els.preview.classList.add('playing'); });
+    els.list.addEventListener('mouseover', (e) => {
+      const row = e.target.closest('.ch');
+      if (row !== pv.row) schedulePreview(row);
+    });
+    els.list.addEventListener('mouseleave', () => schedulePreview(null));
+  }
 
   // ---------- Trascinamento (canali nelle cartelle, ordine delle cartelle) ----------
 
@@ -1219,7 +1590,7 @@
     closeMenu();
     drag = row.classList.contains('folder')
       ? { type: 'folder', f: org.data.folders[row.dataset.f] }
-      : { type: 'ch', stream: state.channels[row.dataset.i].stream };
+      : { type: 'ch', stream: streamAt(row.dataset.i) };
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', '');
     row.classList.add('dragging');
@@ -1278,12 +1649,16 @@
     else els.spinner.classList.remove('on');
   }
 
+  let playSeq = 0;
   async function play(i) {
-    const ch = state.channels[i];
-    if (!ch) return;
+    // Di solito il canale è già qui (riga visibile); altrimenti arriva da Rust.
+    const seq = ++playSeq;
+    const ch = await getChannel(i);
+    if (!ch || seq !== playSeq) return;
     const token = ++state.token;
 
     state.current = i;
+    state.playing = ch;
     store.set('last', ch.stream);
     markActive();
     showCard(ch);
@@ -1295,8 +1670,9 @@
     loadEpg(ch, token);
     wake();
 
-    // Lascia che il video precedente "affondi" prima di cambiare sorgente.
-    if (state.hasPlayed) await wait(300);
+    // Lascia che il video precedente "affondi" prima di cambiare sorgente
+    // (la versione legacy non ha l'animazione: cambia subito).
+    if (state.hasPlayed && !lite) await wait(300);
     if (token !== state.token) return;
     startStream(ch.stream, token);
   }
@@ -1321,7 +1697,7 @@
 
   const textTracks = () => [...video.textTracks].filter((t) => t.kind === 'subtitles' || t.kind === 'captions');
   const hlsSubtitleTracks = () => state.hls?.subtitleTracks ?? [];
-  const subsAvailable = () => !!subs.dvb || hlsSubtitleTracks().length > 0 || textTracks().length > 0;
+  const subsAvailable = () => !!subs.dvb || !!subs.native || hlsSubtitleTracks().length > 0 || textTracks().length > 0;
 
   function updateSubsButton() {
     body.classList.toggle('has-subs', subsAvailable());
@@ -1331,6 +1707,8 @@
 
   /** Applica la scelta acceso/spento a tutte le fonti disponibili. */
   function applySubs() {
+    // Lettore nativo: i sottotitoli (anche DVB) li disegna ExoPlayer.
+    if (nativePlayer) nativePlayer.setSubtitles(subs.on);
     const hls = state.hls;
     const hlsTracks = hlsSubtitleTracks();
     if (hls && hlsTracks.length) {
@@ -1355,7 +1733,7 @@
 
   function resetSubs() {
     cancelAnimationFrame(subs.frame);
-    Object.assign(subs, { dvb: null, queue: [], shown: null, initPTS: null, frame: 0 });
+    Object.assign(subs, { dvb: null, native: false, queue: [], shown: null, initPTS: null, frame: 0 });
     paintSubtitle(null);
     updateSubsButton();
   }
@@ -1531,6 +1909,10 @@
     }
     video.removeAttribute('src');
     video.load();
+    if (nativePlayer) {
+      nativePlayer.stop();
+      document.documentElement.classList.remove('native-video');
+    }
   }
 
   /**
@@ -1558,11 +1940,19 @@
   }
 
   function startStream(url, token) {
+    if (useNative()) return playViaNative(url, token);
     const alt = hlsVariant(url);
     const original = () => playHls(url, token, () => playNative(url, token));
     if (alt) playHls(alt, token, original);
     else original();
   }
+
+  // Memoria del lettore. hls.js di serie tiene fino a 60 MB e 10 minuti di video in avanti;
+  // qui il buffer resta più corto, e nella versione legacy (box da 2 GB) ancora di più, con
+  // la qualità limitata alla dimensione del video sullo schermo.
+  const HLS_BUFFER = lite
+    ? { maxBufferLength: 20, maxMaxBufferLength: 30, maxBufferSize: 25e6, backBufferLength: 10, capLevelToPlayerSize: true }
+    : { maxMaxBufferLength: 120, backBufferLength: 30 };
 
   /** Prova a riprodurre `url` con hls.js; se non è una playlist valida chiama `fallback`. */
   function playHls(url, token, fallback) {
@@ -1583,9 +1973,9 @@
       },
       enableWorker: true,
       liveDurationInfinity: true,
-      backBufferLength: 30,
       manifestLoadingMaxRetry: 1,
       subtitleDisplay: subs.on,
+      ...HLS_BUFFER,
     });
     state.hls = hls;
     let recovered = false;
@@ -1619,6 +2009,56 @@
     hls.attachMedia(video);
   }
 
+  // ---------- Lettore nativo (versione legacy su Android) ----------
+  //
+  // ExoPlayer legge direttamente il flusso originale (per Xtream l'MPEG-TS, il più leggero);
+  // se non va prova la variante HLS. Gli eventi tornano qui con window.__nativePlayer.
+
+  let nativeNext = null;
+
+  function playViaNative(url, token) {
+    if (token !== state.token) return;
+    teardown();
+    setLoading(true);
+    // La pagina diventa trasparente dove non c'è interfaccia: sotto c'è il video.
+    document.documentElement.classList.add('native-video');
+    const tries = [url, hlsVariant(url)].filter(Boolean);
+    nativeNext = () => {
+      const next = tries.shift();
+      if (!next) return fail(token);
+      nativePlayer.play(next, token);
+    };
+    nativeNext();
+    applyVolume();
+    nativePlayer.setSubtitles(subs.on);
+    nativeRect();
+  }
+
+  window.__nativePlayer = (token, event, data) => {
+    if (token !== state.token) return;
+    if (event === 'playing') onPlaying();
+    else if (event === 'waiting') setLoading(true);
+    else if (event === 'error' || event === 'ended') nativeNext?.();
+    else if (event === 'subtitles') {
+      subs.native = !!data.available;
+      updateSubsButton();
+    }
+  };
+
+  /** Il video nativo segue il riquadro del video nella pagina (tutto schermo o miniatura della guida). */
+  function nativeRect() {
+    if (!nativePlayer) return;
+    const set = () => {
+      if (!body.classList.contains('guide-open')) return nativePlayer.setRect(0, 0, 0, 0);
+      const r = els.videoWrap.getBoundingClientRect();
+      const d = devicePixelRatio || 1;
+      nativePlayer.setRect(Math.round(r.left * d), Math.round(r.top * d), Math.round(r.width * d), Math.round(r.height * d));
+    };
+    set();
+    // Di nuovo a transizione finita.
+    setTimeout(set, 450);
+  }
+
   function playNative(url, token) {
     if (token !== state.token) return;
     if (state.hls) {
@@ -1650,7 +2090,9 @@
     toast(tr('toast.playFail'), { kind: 'error', action: { label: tr('toast.retry'), icon: ICONS.reload, fn: reloadChannel } });
   }
 
-  video.addEventListener('playing', () => {
+  video.addEventListener('playing', () => onPlaying());
+
+  function onPlaying() {
     setLoading(false);
     state.hasPlayed = true;
     body.classList.add('is-playing');
@@ -1659,7 +2101,7 @@
     // Un eventuale "Riprova" rimasto a schermo non serve più.
     if (els.toast.classList.contains('has-action')) hideToast();
     wake();
-  });
+  }
   video.addEventListener('waiting', () => setLoading(true));
   video.addEventListener('pause', () => body.classList.remove('is-playing'));
   video.addEventListener('error', () => {
@@ -1674,6 +2116,7 @@
     video.volume = state.volume;
     video.muted = state.muted || state.volume === 0;
     const silent = video.muted;
+    if (nativePlayer) nativePlayer.setVolume(silent ? 0 : state.volume);
     els.volume.value = Math.round(state.volume * 100);
     els.volume.style.setProperty('--v', `${state.volume * 100}%`);
     body.classList.toggle('muted', silent);
@@ -1743,6 +2186,7 @@
   video.addEventListener('dblclick', toggleFullscreen);
   // Un clic sul video chiude il pannello canali, se aperto.
   video.addEventListener('click', () => {
+    if (body.classList.contains('guide-open')) return;
     if (sidebarOpen() && body.classList.contains('has-channel')) setSidebar(false);
   });
   $('winMin').addEventListener('click', () => appWindow.minimize());
@@ -1823,7 +2267,7 @@
       return;
     }
     const i = Number(row.dataset.i);
-    if (act?.dataset.act === 'pin') return togglePin(state.channels[i].stream);
+    if (act?.dataset.act === 'pin') return togglePin(streamAt(i));
     // Ricarica: riapre da capo lo stream (sul canale attivo come su uno nuovo).
     if (act?.dataset.act === 'reload') {
       schedulePreview(null);
@@ -1851,12 +2295,65 @@
     scheduleRows();
     schedulePreview(null);
     closeMenu();
+    els.topBtn.classList.toggle('show', els.list.scrollTop > 600);
   }, { passive: true });
 
+  // "Torna su" e, sulla TV, pagina su/giù: con il telecomando scorrere 300.000 canali una
+  // riga alla volta non è pensabile.
+  function scrollList(y) {
+    els.list.scrollTo({ top: Math.max(0, y), behavior: lite ? 'auto' : 'smooth' });
+  }
+  els.topBtn.addEventListener('click', () => scrollList(0));
+  els.pageUp.addEventListener('click', () => scrollList(els.list.scrollTop - (els.list.clientHeight - 60)));
+  els.pageDown.addEventListener('click', () => scrollList(els.list.scrollTop + (els.list.clientHeight - 60)));
+
+  /** Telecomando su/giù su una riga della lista: la riga successiva, anche se non è ancora a schermo. */
+  function stepRow(row, d) {
+    let pos = posAt(parseFloat(row.style.top) + 1) + d;
+    while (pos >= 0 && pos < list.n && list.kind[pos] === K_SEC) pos += d;
+    if (pos < 0 || pos >= list.n) return false; // ai bordi decide la geometria (es. la ricerca)
+    focusRow(pos);
+    return true;
+  }
+
+  async function focusRow(pos) {
+    const box = els.list;
+    const y = list.top[pos];
+    const hgt = list.top[pos + 1] - y;
+    if (y < box.scrollTop + 8) box.scrollTop = Math.max(0, y - 8);
+    else if (y + hgt > box.scrollTop + box.clientHeight - 16) box.scrollTop = y + hgt - box.clientHeight + 16;
+    renderRows();
+    if (!list.rows.has(pos) && list.loading) {
+      await list.loading;
+      renderRows();
+    }
+    const row = list.rows.get(pos);
+    if (row) row.focus({ preventScroll: true });
+  }
+
+  // Ricerca: la fa Rust sulla lista aperta e restituisce le posizioni dei canali trovati.
   let filterTimer = 0;
+  let searchSeq = 0;
+  async function runSearch() {
+    const q = els.searchInput.value.trim().toLowerCase();
+    const seq = ++searchSeq;
+    if (!q || !state.serial) {
+      list.hits = null;
+      list.query = '';
+      rebuild();
+      return;
+    }
+    try {
+      const buf = await invoke('search', { serial: state.serial, query: q });
+      if (seq !== searchSeq) return; // nel frattempo si è scritto altro
+      list.hits = new Uint32Array(buf instanceof ArrayBuffer ? buf : new Uint8Array(buf).buffer);
+      list.query = q;
+      rebuild();
+    } catch { /* lista cambiata: applyChannels rifà la ricerca */ }
+  }
   els.searchInput.addEventListener('input', () => {
     clearTimeout(filterTimer);
-    filterTimer = setTimeout(rebuild, state.channels.length > 5000 ? 180 : 0);
+    filterTimer = setTimeout(runSearch, state.total > 5000 ? 180 : 0);
   });
   els.srcBtn.addEventListener('click', toggleMenu(els.srcBtn, sourcesMenu));
   els.optionsBtn.addEventListener('click', toggleMenu(els.optionsBtn, optionsMenu));
@@ -1866,6 +2363,247 @@
   });
   els.refreshBtn.addEventListener('click', () => (activeSource()?.file ? pickFile(state.active) : downloadActive()));
   els.emptyFile.addEventListener('click', () => pickFile());
+  els.browseClose.addEventListener('click', closeBrowse);
+  els.guideBtn.addEventListener('click', openGuide);
+  els.gClose.addEventListener('click', closeGuide);
+  // La miniatura del video nella guida riporta al video a tutto schermo.
+  els.videoWrap.addEventListener('click', () => { if (body.classList.contains('guide-open')) closeGuide(); });
+
+  // ---------- Guida dei programmi (pagina) ----------
+  //
+  // Canali in righe, ore in colonne, una linea per "adesso"; il video continua in un angolo.
+  // Le righe sono virtuali come la lista: esistono solo quelle vicine alla parte visibile.
+
+  // Da 12 ore fa a 48 ore avanti (la finestra tenuta da Rust, epg.rs). PX = pixel per minuto.
+  const G = { ROW: 64, NAME: 230, PX: 4, BEFORE: 12, HOURS: 60, RULER: 34, STEP: 3 };
+  const gv = { open: false, ids: [], t0: 0, rows: new Map(), progs: new Map(), asked: new Set(), frame: 0, clock: 0 };
+
+  async function openGuide() {
+    if (!state.guide) return;
+    closeMenu();
+    hidePreview();
+    rememberFocus();
+    gv.open = true;
+    body.classList.add('guide-open');
+    els.guide.setAttribute('aria-hidden', 'false');
+    nativeRect();
+    if (Date.now() - state.guide.at > GUIDE_REFRESH) loadGuide();
+    await refreshGuide(true);
+    if (tv) setTimeout(() => {
+      const first = els.gCanvas.querySelector('.g-prog.now') || els.gClose;
+      focusItem(first);
+    }, 120);
+  }
+
+  function closeGuide() {
+    if (!gv.open) return;
+    gv.open = false;
+    clearInterval(gv.clock);
+    body.classList.remove('guide-open');
+    els.guide.setAttribute('aria-hidden', 'true');
+    nativeRect();
+    restoreFocus();
+  }
+
+  /** (Ri)carica i canali della guida: prima fissati e cartelle, poi gli altri in ordine di lista. */
+  async function refreshGuide(scrollToNow = false) {
+    const serial = state.serial;
+    const buf = await invoke('guide_channels', { serial }).catch(() => null);
+    if (!buf || serial !== state.serial || !gv.open) return;
+    const all = new Uint32Array(buf instanceof ArrayBuffer ? buf : new Uint8Array(buf).buffer);
+    const has = new Set(all);
+    const first = [];
+    const seen = new Set();
+    const saved = org.data.pinned.concat(...org.data.folders.map((f) => f.items));
+    for (const s of saved) {
+      const i = org.idx.get(s);
+      if (i >= 0 && has.has(i) && !seen.has(i)) { seen.add(i); first.push(i); }
+    }
+    gv.ids = first.concat([...all].filter((i) => !seen.has(i)));
+    const now = Date.now() / 1000;
+    gv.t0 = Math.floor(now / 1800) * 1800 - G.BEFORE * 3600;
+    gv.progs.clear();
+    gv.asked.clear();
+    for (const row of gv.rows.values()) row.remove();
+    gv.rows.clear();
+    els.gEmpty.hidden = gv.ids.length > 0;
+    els.gEmpty.textContent = tr('guide.empty');
+    els.gCanvas.style.width = `${G.NAME + G.HOURS * 60 * G.PX}px`;
+    els.gCanvas.style.height = `${G.RULER + gv.ids.length * G.ROW}px`;
+    renderRuler();
+    tickGuide();
+    clearInterval(gv.clock);
+    gv.clock = setInterval(tickGuide, 30e3);
+    if (scrollToNow) {
+      els.gBody.scrollTop = 0;
+      scrollGuideTo(now - 1800, false);
+    }
+    renderGuide();
+  }
+
+  const gx = (t) => G.NAME + ((t - gv.t0) / 60) * G.PX;
+  const hhmm = (t) => new Date(t * 1000).toLocaleTimeString(lang, { hour: '2-digit', minute: '2-digit' });
+
+  const dayName = (t) => new Date(t * 1000).toLocaleDateString(lang, { weekday: 'short', day: 'numeric', month: 'short' });
+
+  function renderRuler() {
+    const marks = [];
+    for (let k = 0; k < G.HOURS * 2; k++) {
+      const t = gv.t0 + k * 1800;
+      const d = new Date(t * 1000);
+      // A mezzanotte anche il giorno, per capire dove si è nel tempo.
+      const midnight = d.getHours() === 0 && d.getMinutes() === 0;
+      const m = h('span', midnight ? 'g-mark day' : 'g-mark', midnight ? `${dayName(t)} · ${hhmm(t)}` : hhmm(t));
+      m.style.left = `${gx(t)}px`;
+      marks.push(m);
+    }
+    els.gRuler.replaceChildren(...marks);
+  }
+
+  /** Ora attuale: orologio, linea "adesso" e programmi che passano da "in onda" a "finiti". */
+  function tickGuide() {
+    const now = Date.now() / 1000;
+    els.gClock.textContent = hhmm(now);
+    renderGuideFoot();
+    els.gNow.style.left = `${gx(now)}px`;
+    els.gNow.style.height = `${G.RULER + gv.ids.length * G.ROW}px`;
+    for (const b of els.gCanvas.querySelectorAll('.g-prog')) {
+      const s = Number(b.dataset.start);
+      const e = Number(b.dataset.end);
+      b.classList.toggle('now', s <= now && now < e);
+      b.classList.toggle('past', e <= now);
+    }
+  }
+
+  /** Riquadro "in onda" accanto alla miniatura del lettore nativo. */
+  function renderGuideFoot() {
+    const ch = state.playing;
+    if (!ch) return;
+    if (els.gFootName.textContent !== ch.name) fillLogo(els.gFootLogo, ch);
+    els.gFootName.textContent = ch.name;
+    els.gFootProg.textContent = els.nowProgram.textContent;
+  }
+
+  function scheduleGuide() {
+    if (!gv.frame) gv.frame = requestAnimationFrame(renderGuide);
+  }
+
+  /** Ora mostrata al bordo sinistro della griglia (dopo la colonna dei canali). */
+  const guideLeftTime = () => gv.t0 + (els.gBody.scrollLeft / G.PX) * 60;
+
+  /** Sposta la griglia in modo che `t` sia vicino al bordo sinistro. */
+  function scrollGuideTo(t, smooth = true) {
+    els.gBody.scrollTo({ left: Math.max(0, ((t - gv.t0) / 60) * G.PX - 90), behavior: smooth && !lite ? 'smooth' : 'auto' });
+  }
+
+  els.gPrev.addEventListener('click', () => scrollGuideTo(guideLeftTime() + 1350 - G.STEP * 3600));
+  els.gNext.addEventListener('click', () => scrollGuideTo(guideLeftTime() + 1350 + G.STEP * 3600));
+  els.gNowBtn.addEventListener('click', () => scrollGuideTo(Date.now() / 1000 - 1800));
+
+  function renderGuide() {
+    gv.frame = 0;
+    if (!gv.open) return;
+    els.gDay.textContent = dayName(guideLeftTime() + 3600);
+    const top = els.gBody.scrollTop;
+    const hgt = els.gBody.clientHeight || innerHeight;
+    const start = Math.max(0, Math.floor((top - G.RULER) / G.ROW) - 4);
+    const end = Math.min(gv.ids.length, Math.ceil((top + hgt) / G.ROW) + 4);
+    for (const [p, row] of gv.rows) {
+      if (p < start || p >= end) { row.remove(); gv.rows.delete(p); }
+    }
+    const need = [];
+    const frag = document.createDocumentFragment();
+    for (let p = start; p < end; p++) {
+      if (gv.rows.has(p)) continue;
+      const i = gv.ids[p];
+      if (!chans.has(i) || !gv.progs.has(i)) {
+        if (!gv.asked.has(i)) need.push(i);
+        continue;
+      }
+      const row = guideRow(p, i);
+      gv.rows.set(p, row);
+      frag.append(row);
+    }
+    els.gCanvas.append(frag);
+    if (need.length) fetchGuideRows(need);
+  }
+
+  async function fetchGuideRows(indices) {
+    const serial = state.serial;
+    for (const i of indices) gv.asked.add(i);
+    const from = gv.t0;
+    const to = gv.t0 + G.HOURS * 3600;
+    try {
+      const missing = indices.filter((i) => !chans.has(i));
+      const [progs] = await Promise.all([
+        invoke('guide_programmes', { serial, indices, from, to }),
+        missing.length ? fetchChannels(missing) : null,
+      ]);
+      if (serial !== state.serial || from !== gv.t0) return;
+      indices.forEach((i, k) => gv.progs.set(i, progs[k] || []));
+      scheduleGuide();
+    } catch { /* lista o guida cambiate */ } finally {
+      for (const i of indices) gv.asked.delete(i);
+    }
+  }
+
+  function guideRow(p, i) {
+    const ch = chans.get(i);
+    const row = h('div', 'g-row');
+    row.style.top = `${G.RULER + p * G.ROW}px`;
+    const name = h('div', 'g-name');
+    const logo = h('div', 'logo');
+    fillLogo(logo, ch);
+    name.append(logo, h('span', null, ch.name));
+    name.classList.toggle('active', i === state.current);
+    row.append(name);
+    const now = Date.now() / 1000;
+    const limit = gv.t0 + G.HOURS * 3600;
+    for (const pr of gv.progs.get(i)) {
+      const s = Math.max(pr.start, gv.t0);
+      const e = Math.min(pr.end, limit);
+      const b = h('button', 'g-prog');
+      b.type = 'button';
+      b.style.left = `${gx(s)}px`;
+      const width = Math.max(12, ((e - s) / 60) * G.PX - 4);
+      b.style.width = `${width}px`;
+      // Programmi di pochi minuti: solo il blocco, il titolo è nel suggerimento.
+      if (width < 44) b.classList.add('tiny');
+      b.dataset.i = i;
+      b.dataset.start = pr.start;
+      b.dataset.end = pr.end;
+      b.classList.toggle('now', pr.start <= now && now < pr.end);
+      b.classList.toggle('past', pr.end <= now);
+      b.append(h('span', 'g-title', pr.title), h('span', 'g-time', `${hhmm(pr.start)}–${hhmm(pr.end)}`));
+      b.title = pr.title;
+      row.append(b);
+    }
+    return row;
+  }
+
+  els.gBody.addEventListener('scroll', scheduleGuide, { passive: true });
+  els.gCanvas.addEventListener('click', (e) => {
+    const b = e.target.closest('.g-prog');
+    if (!b) return;
+    const i = Number(b.dataset.i);
+    const pr = (gv.progs.get(i) || []).find((x) => String(x.start) === b.dataset.start);
+    if (!pr) return;
+    const now = Date.now() / 1000;
+    // In onda: si guarda subito (il video resta nella miniatura); altrimenti i dettagli.
+    if (pr.start <= now && now < pr.end) {
+      play(i).then(renderGuideFoot);
+      for (const n of els.gCanvas.querySelectorAll('.g-name')) n.classList.remove('active');
+      b.parentElement.querySelector('.g-name').classList.add('active');
+      return;
+    }
+    const ch = chans.get(i);
+    dialog({
+      title: pr.title,
+      text: `${hhmm(pr.start)}–${hhmm(pr.end)} · ${ch ? ch.name : ''}${pr.desc ? `\n\n${pr.desc}` : ''}`,
+      confirm: tr('guide.watch'),
+      cancel: tr('guide.close'),
+    }).then((ok) => { if (ok) play(i); });
+  });
 
   // ---------- Indietro e telecomando (Android, Android TV) ----------
 
@@ -1873,6 +2611,8 @@
   function goBack() {
     if (menu.open) closeMenu();
     else if (dialogOpen()) closeDialog(null);
+    else if (gv.open) closeGuide();
+    else if (browsing()) closeBrowse();
     else if (pv.shown) schedulePreview(null);
     else if (document.activeElement instanceof HTMLInputElement) document.activeElement.blur();
     else if (sidebarOpen()) setSidebar(false);
@@ -1897,8 +2637,16 @@
   function navAreas() {
     if (dialogOpen()) return [els.dialogForm];
     if (menu.open) return [els.menu];
-    if (sidebarOpen()) return body.classList.contains('has-channel') ? [els.sidebar, els.sbToggle, els.controls] : [els.sidebar, els.sbToggle];
-    return [];
+    if (gv.open) return [els.guide];
+    if (browsing()) return [els.empty];
+    // Senza liste c'è la scheda di benvenuto (campo URL, file M3U): senza di lei, OK nel campo
+    // spostava il fuoco nel pannello invece di aggiungere la lista.
+    const welcome = !body.classList.contains('has-source');
+    if (sidebarOpen()) {
+      if (body.classList.contains('has-channel')) return [els.sidebar, els.sbToggle, els.controls];
+      return welcome ? [els.sidebar, els.sbToggle, els.empty] : [els.sidebar, els.sbToggle];
+    }
+    return welcome ? [els.empty, els.sbToggle] : [];
   }
 
   function navCandidates(areas) {
@@ -1931,8 +2679,12 @@
   }
 
   function moveFocus(dir) {
-    const items = navCandidates(navAreas());
     const current = document.activeElement;
+    // Su e giù tra le righe della lista: per posizione, così si scorre oltre quelle a schermo.
+    if ((dir === 'up' || dir === 'down') && current && current.parentElement === els.rows
+      && (current.classList.contains('ch') || current.classList.contains('folder'))
+      && stepRow(current, dir === 'down' ? 1 : -1)) return;
+    const items = navCandidates(navAreas());
     if (!items.includes(current)) return focusFirst();
     const r = current.getBoundingClientRect();
     const cx = r.left + r.width / 2;
@@ -1947,8 +2699,11 @@
       const dy = b.top + b.height / 2 - cy;
       const ahead = { up: dy < -4, down: dy > 4, left: dx < -4, right: dx > 4 }[dir];
       if (!ahead) continue;
-      // Distanza lungo la direzione, penalizzando chi è spostato di lato.
-      const score = vertical ? Math.abs(dy) + Math.abs(dx) * 2 : Math.abs(dx) + Math.abs(dy) * 2;
+      // Distanza lungo la direzione, penalizzando chi è spostato di lato. Prima gli elementi
+      // davvero in quella direzione (entro 45°): "destra" non deve finire sul campo appena sotto.
+      const along = vertical ? Math.abs(dy) : Math.abs(dx);
+      const aside = vertical ? Math.abs(dx) : Math.abs(dy);
+      const score = along + aside * 2 + (aside > along ? 1e6 : 0);
       if (score < bestScore) {
         best = el;
         bestScore = score;
@@ -2043,6 +2798,7 @@
       case 'f': case 'F': toggleFullscreen(); break;
       case 'r': case 'R': reloadChannel(); break;
       case 's': case 'S': setSidebar(!sidebarOpen()); break;
+      case 'g': case 'G': if (gv.open) closeGuide(); else openGuide(); break;
       case '/': e.preventDefault(); setSidebar(true); els.searchInput.focus(); break;
     }
   });
@@ -2053,6 +2809,8 @@
     moveHighlight(true);
     closeMenu();
     hidePreview();
+    nativeRect();
+    scheduleGuide();
   });
   window.addEventListener('beforeunload', flushOrg);
 
@@ -2081,8 +2839,16 @@
     }).catch(() => {});
   }
 
+  invoke('get_proxy')
+    .then((p) => {
+      state.proxy = { enabled: !!p.enabled, url: p.url || '', username: p.username || '', password: p.password || '' };
+      nativeProxy();
+    })
+    .catch(() => {});
+
   refreshSources()
     .then(({ active }) => {
+      renderPublicLists();
       if (active) return openSource(active).then(() => { if (tv && sidebarOpen()) focusFirst(); });
       // Sul telefono, senza liste, il pannello coprirebbe la schermata di benvenuto.
       if (narrow()) body.classList.add('sb-closed');

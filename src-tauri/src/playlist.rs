@@ -2,6 +2,10 @@
 
 use serde::Serialize;
 use serde_json::{Map, Value};
+use std::collections::HashMap;
+use std::fs::File;
+use std::io::{BufRead, BufReader, Read};
+use std::path::Path;
 use url::Url;
 
 #[derive(Debug, Clone, Serialize)]
@@ -12,6 +16,9 @@ pub struct Channel {
     pub stream: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group: Option<String>,
+    /// Identificativo nella guida dei programmi (XMLTV), es. `tvg-id` nelle M3U.
+    #[serde(skip)]
+    pub epg_id: Option<String>,
 }
 
 const NAME_KEYS: &[&str] = &["name", "title", "nome", "titolo", "label", "channel", "canale", "tvg-name"];
@@ -24,6 +31,7 @@ const STREAM_KEYS: &[&str] = &[
     "file", "href", "uri", "video", "playback_url",
 ];
 const GROUP_KEYS: &[&str] = &["group", "category", "categoria", "gruppo", "genre", "group-title"];
+const EPG_KEYS: &[&str] = &["tvg-id", "tvg_id", "epg_id", "epg_channel_id", "xmltv_id"];
 const LIST_KEYS: &[&str] = &["channels", "canali", "items", "data", "results", "list", "streams", "entries"];
 
 pub fn parse(body: &str, base: &Url) -> Result<Vec<Channel>, String> {
@@ -37,7 +45,7 @@ pub fn parse(body: &str, base: &Url) -> Result<Vec<Channel>, String> {
         let hls_tags = text.contains("#EXT-X-STREAM-INF") || text.contains("#EXT-X-TARGETDURATION");
         if hls_tags && !text.contains("tvg-") {
             // L'URL punta direttamente a un singolo flusso HLS.
-            vec![Channel { name: stream_name(base), image: None, stream: base.to_string(), group: None }]
+            vec![Channel { name: stream_name(base), image: None, stream: base.to_string(), group: None, epg_id: None }]
         } else {
             from_m3u(text, base)
         }
@@ -57,6 +65,53 @@ pub fn resolve(base: &Url, s: &str) -> String {
     base.join(s).map(|u| u.to_string()).unwrap_or_else(|_| s.to_string())
 }
 
+/// Come `resolve`, ma per tutti gli URL di una lista. Quasi tutti condividono poche "cartelle"
+/// (gli stream di un pannello Xtream, i loghi di uno stesso server): ogni cartella viene
+/// risolta una volta sola e il nome finale aggiunto così com'è. Con centinaia di migliaia
+/// di righe dimezza il tempo di lettura. I nomi finali che l'analisi degli URL potrebbe
+/// modificare (caratteri da codificare, "." e "..", query) seguono la strada normale.
+struct Resolver<'a> {
+    base: &'a Url,
+    /// Cartella → cartella risolta (None se non si presta alla scorciatoia).
+    dirs: HashMap<String, Option<String>>,
+}
+
+impl<'a> Resolver<'a> {
+    fn new(base: &'a Url) -> Self {
+        Resolver { base, dirs: HashMap::new() }
+    }
+
+    fn resolve(&mut self, s: &str) -> String {
+        let (dir, tail) = s.split_at(s.rfind('/').map_or(0, |i| i + 1));
+        if dir.is_empty() || dir.contains(['?', '#', '\\']) || !plain_segment(tail) {
+            return resolve(self.base, s);
+        }
+        if !self.dirs.contains_key(dir) {
+            // Solo se la "/" chiude davvero una cartella del percorso (non "http://" senza percorso).
+            let resolved = (!dir.ends_with("//"))
+                .then(|| self.base.join(dir).ok())
+                .flatten()
+                .map(|u| u.to_string())
+                .filter(|r| r.ends_with('/'));
+            self.dirs.insert(dir.to_string(), resolved);
+        }
+        match &self.dirs[dir] {
+            Some(r) => [r.as_str(), tail].concat(),
+            None => resolve(self.base, s),
+        }
+    }
+}
+
+/// Ultimo segmento di un percorso che l'analisi degli URL lascia invariato.
+fn plain_segment(t: &str) -> bool {
+    if t.is_empty() || !t.bytes().all(|b| b.is_ascii_alphanumeric() || b"-._~!$&'()*+,;=:@%".contains(&b)) {
+        return false;
+    }
+    // "." e ".." (anche scritti %2e) sono segmenti speciali.
+    let dots = t.len() <= 6 && matches!(t.to_ascii_lowercase().replace("%2e", ".").as_str(), "." | "..");
+    !dots
+}
+
 fn stream_name(url: &Url) -> String {
     url.host_str().unwrap_or("Stream").to_string()
 }
@@ -65,6 +120,7 @@ fn stream_name(url: &Url) -> String {
 
 fn from_json(value: &Value, base: &Url) -> Vec<Channel> {
     let Some(items) = find_list(value, 0) else { return Vec::new() };
+    let mut urls = Resolver::new(base);
     items
         .iter()
         .filter_map(Value::as_object)
@@ -74,9 +130,10 @@ fn from_json(value: &Value, base: &Url) -> Vec<Channel> {
             let name = field(obj, NAME_KEYS).unwrap_or_else(|| format!("#{}", i + 1));
             Some(Channel {
                 name,
-                image: field(obj, IMAGE_KEYS).map(|s| resolve(base, &s)),
-                stream: resolve(base, &stream),
+                image: field(obj, IMAGE_KEYS).map(|s| urls.resolve(&s)),
+                stream: urls.resolve(&stream),
                 group: field(obj, GROUP_KEYS),
+                epg_id: field(obj, EPG_KEYS),
             })
         })
         .collect()
@@ -116,34 +173,113 @@ fn field(obj: &Map<String, Value>, keys: &[&str]) -> Option<String> {
 // ---------- M3U ----------
 
 fn from_m3u(text: &str, base: &Url) -> Vec<Channel> {
-    let mut channels = Vec::new();
-    let mut pending: Option<(String, Option<String>, Option<String>)> = None;
-    let mut group_hint: Option<String> = None;
+    let mut m3u = M3u::new(base);
+    text.lines().filter_map(|line| m3u.line(line)).collect()
+}
 
-    for line in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
+/// Lettura di una playlist M3U una riga alla volta (dal testo intero o da un file).
+struct M3u<'a> {
+    pending: Option<(String, Option<String>, Option<String>, Option<String>)>,
+    group_hint: Option<String>,
+    urls: Resolver<'a>,
+    count: usize,
+}
+
+impl<'a> M3u<'a> {
+    fn new(base: &'a Url) -> Self {
+        M3u { pending: None, group_hint: None, urls: Resolver::new(base), count: 0 }
+    }
+
+    /// Il canale completato da questa riga (quella con l'URL dello stream), se c'è.
+    fn line(&mut self, line: &str) -> Option<Channel> {
+        let line = line.trim_start_matches('\u{feff}').trim();
+        if line.is_empty() {
+            return None;
+        }
         if let Some(info) = line.strip_prefix("#EXTINF") {
             let name = display_name(info)
                 .filter(|n| !n.is_empty())
                 .map(String::from)
                 .or_else(|| attr(info, "tvg-name"))
-                .unwrap_or_else(|| format!("#{}", channels.len() + 1));
-            pending = Some((name, attr(info, "tvg-logo"), attr(info, "group-title")));
-            group_hint = None;
+                .unwrap_or_else(|| format!("#{}", self.count + 1));
+            self.pending = Some((name, attr(info, "tvg-logo"), attr(info, "group-title"), attr(info, "tvg-id")));
+            self.group_hint = None;
         } else if let Some(g) = line.strip_prefix("#EXTGRP:") {
-            group_hint = Some(g.trim().to_string());
+            self.group_hint = Some(g.trim().to_string());
         } else if !line.starts_with('#') {
-            let (name, image, group) = pending
+            let (name, image, group, epg_id) = self
+                .pending
                 .take()
-                .unwrap_or_else(|| (format!("#{}", channels.len() + 1), None, None));
-            channels.push(Channel {
+                .unwrap_or_else(|| (format!("#{}", self.count + 1), None, None, None));
+            self.count += 1;
+            return Some(Channel {
                 name,
-                image: image.map(|s| resolve(base, &s)),
-                stream: resolve(base, line),
-                group: group.or_else(|| group_hint.take()),
+                image: image.map(|s| self.urls.resolve(&s)),
+                stream: self.urls.resolve(line),
+                group: group.or_else(|| self.group_hint.take()),
+                epg_id,
             });
         }
+        None
     }
-    channels
+}
+
+/// Oltre questa dimensione una playlist M3U si legge dal file riga per riga.
+const STREAM_FROM: u64 = 4 << 20;
+
+/// Legge una lista salvata su disco e passa i canali a `out`, uno alla volta.
+///
+/// Le playlist M3U grandi si leggono riga per riga: in memoria non restano né il testo né
+/// l'elenco completo dei canali (con 300.000 canali sono circa 210 MB in meno, decisivi su
+/// un TV box da 2 GB). JSON e liste piccole passano da `parse`, con le stesse regole.
+///
+/// Restituisce l'indirizzo della guida dei programmi dichiarato nella lista, se c'è.
+pub fn parse_file(path: &Path, base: &Url, out: impl FnMut(Channel)) -> Result<Option<String>, String> {
+    parse_file_from(path, base, STREAM_FROM, out)
+}
+
+fn parse_file_from(
+    path: &Path,
+    base: &Url,
+    stream_from: u64,
+    mut out: impl FnMut(Channel),
+) -> Result<Option<String>, String> {
+    let file = File::open(path).map_err(|e| e.to_string())?;
+    let size = file.metadata().map(|m| m.len()).unwrap_or(0);
+    let mut reader = BufReader::with_capacity(64 << 10, file);
+    if size > stream_from {
+        let head = String::from_utf8_lossy(reader.fill_buf().map_err(|e| e.to_string())?).into_owned();
+        let start = head.trim_start_matches('\u{feff}').trim_start();
+        if start.starts_with("#EXTM3U") || (!start.starts_with(['{', '[']) && head.contains("#EXTINF")) {
+            let mut m3u = M3u::new(base);
+            let mut buf = Vec::new();
+            loop {
+                buf.clear();
+                if reader.read_until(b'\n', &mut buf).map_err(|e| e.to_string())? == 0 {
+                    break;
+                }
+                if let Some(ch) = m3u.line(&String::from_utf8_lossy(&buf)) {
+                    out(ch);
+                }
+            }
+            return if m3u.count == 0 { Err("no_channels".into()) } else { Ok(guide_url(&head, base)) };
+        }
+    }
+    let mut bytes = Vec::with_capacity(size as usize);
+    reader.read_to_end(&mut bytes).map_err(|e| e.to_string())?;
+    let text = String::from_utf8(bytes).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned());
+    parse(&text, base)?.into_iter().for_each(out);
+    Ok(guide_url(&text, base))
+}
+
+/// Indirizzo della guida dei programmi (XMLTV) dichiarato nell'intestazione di una M3U
+/// (`#EXTM3U url-tvg="…"` o `x-tvg-url`): il primo, se ce ne sono più d'uno.
+pub fn guide_url(text: &str, base: &Url) -> Option<String> {
+    let first = text.trim_start_matches('﻿').lines().map(str::trim).find(|l| !l.is_empty())?;
+    let info = first.strip_prefix("#EXTM3U")?;
+    let value = attr(info, "url-tvg").or_else(|| attr(info, "x-tvg-url"))?;
+    let url = value.split(',').map(str::trim).find(|s| !s.is_empty())?;
+    Some(resolve(base, url))
 }
 
 /// Valore di un attributo `chiave="valore"` in una riga `#EXTINF`.
@@ -220,6 +356,96 @@ mod tests {
         assert_eq!(c[0].image, None);
         assert_eq!(c[0].stream, "http://panel.tv:8080/u/p/1234");
         assert_eq!(c[1].group.as_deref(), Some("VOD"));
+    }
+
+    /// La scorciatoia per cartella deve dare esattamente lo stesso risultato di `resolve`.
+    #[test]
+    fn resolver_matches_resolve() {
+        let bases = [base(), Url::parse("http://panel.tv:8080/get.php?username=u&password=p").unwrap(), Url::parse(LOCAL).unwrap()];
+        let urls = [
+            "http://panel.tv:8080/u/p/1234", "http://PANEL.tv:80/u/p/1234.ts", "http://panel.tv/live/u/p/9.m3u8",
+            "https://image.tmdb.org/t/p/w600/abc%20d.jpg", "logos/a.png", "/root/b.png", "//cdn.tv/x/y.png",
+            "http://a/b/../c/d.png", "http://a/b/./x", "http://a/b/..", "http://a/b/%2e%2E", "http://a/b/c d.png",
+            "http://a/b/é.png", "http://example.com", "http://example.com/", "http://a/b?x=1/2", "http://a/b#f/g",
+            "http://a/b/c?d", "udp://@239.0.0.1:1234", "rtmp://srv/app/stream", "http://a\\b/c.png", "a.m3u8",
+            "http://u:p@h/x/y", "http://h/x/a:b@c", "http://h:99999/x/y", "http://[::1]/x/y",
+        ];
+        for b in &bases {
+            let mut r = Resolver::new(b);
+            for _ in 0..2 {
+                for u in urls {
+                    assert_eq!(r.resolve(u), resolve(b, u), "{u} rispetto a {b}");
+                }
+            }
+        }
+    }
+
+    const LOCAL: &str = "file:///local/";
+
+    fn same(a: &[Channel], b: &[Channel]) -> bool {
+        a.len() == b.len()
+            && a.iter().zip(b).all(|(x, y)| x.name == y.name && x.image == y.image && x.stream == y.stream && x.group == y.group)
+    }
+
+    /// Lettura riga per riga dal file: stessi canali della lettura del testo intero.
+    #[test]
+    fn file_streaming_matches_text() {
+        let body = "\u{feff}#EXTM3U url-tvg=\"x\"\r\n#EXTINF:-1 tvg-logo=\"logos/a.png\" group-title=\"News, Italia\",Rai News\r\n\
+                    http://s/u/p/1\r\n\r\n#EXTINF:-1,\r\n#EXTGRP:Sport\r\nb.m3u8\r\nnaked.ts\r\n#EXTINF:-1 tvg-name=\"Ψ\",\r\nhttp://s/u/p/9";
+        let dir = std::env::temp_dir().join(format!("glassplay-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("list.m3u");
+        std::fs::write(&path, body).unwrap();
+        let expected = parse(body, &base()).unwrap();
+        for stream_from in [0, u64::MAX] {
+            let mut got = Vec::new();
+            parse_file_from(&path, &base(), stream_from, |c| got.push(c)).unwrap();
+            assert!(same(&got, &expected), "stream_from={stream_from}: {got:?}");
+        }
+        assert_eq!(expected.len(), 4);
+        assert_eq!(expected[1].group.as_deref(), Some("Sport"));
+        assert_eq!(expected[2].name, "#3");
+        assert_eq!(expected[3].name, "Ψ");
+        std::fs::write(&path, "#EXTM3U\n#EXTINF:-1,Solo intestazione\n").unwrap();
+        assert!(parse_file_from(&path, &base(), 0, |_| ()).is_err());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Su una lista vera: `GLASSPLAY_LIST=percorso.m3u cargo test -- --ignored big_list_streaming`.
+    #[test]
+    #[ignore]
+    fn big_list_streaming() {
+        let Ok(path) = std::env::var("GLASSPLAY_LIST") else { return };
+        let base = Url::parse("http://example.com/lists/tv.m3u").unwrap();
+        let expected = parse(&std::fs::read_to_string(&path).unwrap(), &base).unwrap();
+        let t = std::time::Instant::now();
+        let mut got = Vec::new();
+        parse_file(Path::new(&path), &base, |c| got.push(c)).unwrap();
+        println!("{} canali letti riga per riga in {:?}", got.len(), t.elapsed());
+        assert!(same(&got, &expected));
+    }
+
+    /// Su una lista vera: `GLASSPLAY_LIST=percorso.m3u cargo test -- --ignored big_list_urls`.
+    #[test]
+    #[ignore]
+    fn big_list_urls() {
+        let Ok(path) = std::env::var("GLASSPLAY_LIST") else { return };
+        let body = std::fs::read_to_string(path).unwrap();
+        let base = Url::parse("http://example.com/lists/tv.m3u").unwrap();
+        let mut r = Resolver::new(&base);
+        let mut n = 0;
+        for line in body.lines().map(str::trim).filter(|l| !l.is_empty()) {
+            let raw = match line.strip_prefix("#EXTINF") {
+                Some(info) => attr(info, "tvg-logo"),
+                None if !line.starts_with('#') => Some(line.to_string()),
+                None => None,
+            };
+            if let Some(raw) = raw {
+                assert_eq!(r.resolve(&raw), resolve(&base, &raw));
+                n += 1;
+            }
+        }
+        println!("{n} URL identici");
     }
 
     #[test]

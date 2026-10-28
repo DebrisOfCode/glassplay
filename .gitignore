@@ -1,6 +1,8 @@
 # Output di compilazione
 /dist/
 target/
+/legacy/build/
+/legacy/dist/
 /src-tauri/gen/schemas/
 
 # Progetto Android generato: output e file locali

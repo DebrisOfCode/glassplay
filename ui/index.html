@@ -25,9 +25,14 @@
 
     <div class="content">
       <section id="empty" class="empty glass">
+        <!-- Liste pubbliche aperte dal menu delle liste: si chiude qui o con Indietro -->
+        <button id="browseClose" class="head-btn browse-close" type="button" data-i18n-title="guide.close">
+          <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
         <img class="app-icon" src="assets/icon.png" alt="">
         <div class="when-nosrc">
-          <h2 data-i18n="welcome.title"></h2>
+          <h2 class="welcome-head" data-i18n="welcome.title"></h2>
+          <h2 class="browse-head" data-i18n="pub.title"></h2>
           <p data-i18n="welcome.text"></p>
           <form id="emptyForm" class="field big">
             <svg viewBox="0 0 24 24"><path d="M10 14a4.5 4.5 0 0 0 6.4 0l3.2-3.2a4.5 4.5 0 0 0-6.4-6.4L12 5.6M14 10a4.5 4.5 0 0 0-6.4 0l-3.2 3.2a4.5 4.5 0 0 0 6.4 6.4l1.2-1.2"/></svg>
@@ -36,6 +41,8 @@
           </form>
           <div class="field big load-status" role="status"><span class="mini-spin"></span><span class="status-text"></span></div>
           <button id="emptyFile" class="link-btn" type="button" data-i18n="empty.file"></button>
+          <!-- Liste libere (iptv-org, Free-TV): le compone app.js -->
+          <div id="publicLists" class="public-lists"></div>
         </div>
         <div class="when-src">
           <h2 data-i18n="pick.title"></h2>
@@ -88,6 +95,9 @@
       <div class="sb-title" data-tauri-drag-region>
         <h1 data-tauri-drag-region data-i18n="sb.title"></h1>
         <span id="count" class="count"></span>
+        <button id="guideBtn" class="head-btn guide-btn" type="button" data-i18n-title="sb.guide">
+          <svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 9.5h17M8 3.5v3M16 3.5v3M7.5 13h3M13.5 13h3M7.5 16.5h3"/></svg>
+        </button>
         <button id="optionsBtn" class="head-btn" type="button" data-i18n-title="sb.options">
           <svg viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg>
         </button>
@@ -113,6 +123,18 @@
       <div id="rows" class="rows"><div id="hl" class="hl" aria-hidden="true"></div></div>
       <div id="listEmpty" class="list-empty" hidden data-i18n="sb.noResults"></div>
     </div>
+    <!-- Torna su (quando si è scesi) e, sulla TV, pagina su/giù -->
+    <div class="list-nav">
+      <button id="topBtn" class="list-btn top-btn" type="button" data-i18n-title="sb.top">
+        <svg viewBox="0 0 24 24"><path d="M6 5h12M12 20V9M7 13l5-5 5 5"/></svg>
+      </button>
+      <button id="pageUp" class="list-btn page-btn" type="button" data-i18n-title="sb.pageUp">
+        <svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg>
+      </button>
+      <button id="pageDown" class="list-btn page-btn" type="button" data-i18n-title="sb.pageDown">
+        <svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+    </div>
   </aside>
 
   <button id="sbToggle" class="sb-toggle glass" data-i18n-title="sb.toggle">
@@ -132,6 +154,37 @@
       <span class="mini-spin pv-spin"></span>
     </div>
     <div class="pv-name"><span class="live"><i></i><span data-i18n="live"></span></span><strong id="pvName"></strong></div>
+    <div id="pvProg" class="pv-prog"></div>
+  </div>
+
+  <!-- Guida dei programmi: canali in righe, ore in colonne (righe create da app.js) -->
+  <section id="guide" class="guide" aria-hidden="true">
+    <header class="g-head">
+      <h2 data-i18n="guide.title"></h2>
+      <span id="gClock" class="g-clock"></span>
+      <span id="gDay" class="g-day"></span>
+      <!-- Spostamento nel tempo: programmi precedenti e successivi -->
+      <div class="g-nav">
+        <button id="gPrev" class="g-btn" type="button"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg><span data-i18n="guide.earlier"></span></button>
+        <button id="gNowBtn" class="g-btn" type="button"><span data-i18n="guide.now"></span></button>
+        <button id="gNext" class="g-btn" type="button"><span data-i18n="guide.later"></span><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
+      </div>
+      <button id="gClose" class="head-btn" type="button" data-i18n-title="guide.close">
+        <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </header>
+    <div id="gBody" class="g-body">
+      <div id="gCanvas" class="g-canvas">
+        <div id="gRuler" class="g-ruler"></div>
+        <div id="gNow" class="g-now"></div>
+      </div>
+    </div>
+    <p id="gEmpty" class="g-empty" hidden></p>
+  </section>
+  <!-- Con il lettore nativo (TV): canale in onda accanto alla miniatura, sotto la guida -->
+  <div id="gFoot" class="g-foot glass">
+    <div id="gFootLogo" class="logo"></div>
+    <div class="g-foot-text"><small data-i18n="card.now"></small><strong id="gFootName"></strong><span id="gFootProg"></span></div>
   </div>
 
   <!-- Selettore di file per le liste M3U caricate dal disco -->

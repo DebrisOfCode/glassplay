@@ -1,6 +1,6 @@
 [package]
 name = "glassplay"
-version = "1.0.0"
+version = "1.1.0"
 description = "Player di canali in streaming in stile liquid glass"
 edition = "2021"
 publish = false
@@ -9,6 +9,10 @@ publish = false
 # Libreria condivisa: la usa l'eseguibile desktop (main.rs) e l'app Android (cdylib/staticlib).
 name = "glassplay_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+[features]
+# Solo versione legacy (build.ps1 -Legacy): esclude dalle liste i canali per adulti (src/adult.rs).
+adult-filter = []
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -21,14 +25,17 @@ serde_json = "1"
 url = "2"
 base64 = "0.22"
 png = "0.17"
+# Guida dei programmi (XMLTV, spesso compressa con gzip).
+quick-xml = "0.42"
+flate2 = "1"
 
 # Desktop: TLS del sistema operativo (su Windows SChannel).
 [target.'cfg(not(target_os = "android"))'.dependencies]
-reqwest = { version = "0.12", features = ["gzip", "brotli", "deflate"] }
+reqwest = { version = "0.12", features = ["gzip", "brotli", "deflate", "socks"] }
 
 # Android: rustls con i certificati radice inclusi (niente OpenSSL da compilare per il telefono).
 [target.'cfg(target_os = "android")'.dependencies]
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "charset", "http2", "gzip", "brotli", "deflate"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "charset", "http2", "gzip", "brotli", "deflate", "socks"] }
 
 # Solo desktop: ricorda dimensione, posizione, finestra ingrandita e schermo intero.
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
