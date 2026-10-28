@@ -2303,7 +2303,27 @@
   function scrollList(y) {
     els.list.scrollTo({ top: Math.max(0, y), behavior: lite ? 'auto' : 'smooth' });
   }
-  els.topBtn.addEventListener('click', () => scrollList(0));
+  els.topBtn.addEventListener('click', () => {
+    scrollList(0);
+    // Telecomando: il fuoco va sul primo canale (il pulsante sparisce appena si è in cima).
+    if (!tv) return;
+    let pos = 0;
+    while (pos < list.n && list.kind[pos] === K_SEC) pos++;
+    if (pos < list.n) setTimeout(() => focusRow(pos), lite ? 0 : 400);
+  });
+
+  /**
+   * Telecomando: dall'ultimo pulsante di una riga ("⋯"), destra porta a "Torna su" se è visibile.
+   * Altrimenti la ricerca per posizione sceglierebbe i controlli del video, più vicini in orizzontale.
+   */
+  function toTopButton(current) {
+    if (!els.topBtn.classList.contains('show') || !current.classList.contains('act')) return false;
+    const row = current.closest('#rows > .ch, #rows > .folder');
+    const acts = row ? [...row.querySelectorAll('.act')].filter((a) => a.offsetWidth > 0) : [];
+    if (acts[acts.length - 1] !== current) return false;
+    focusItem(els.topBtn);
+    return true;
+  }
   els.pageUp.addEventListener('click', () => scrollList(els.list.scrollTop - (els.list.clientHeight - 60)));
   els.pageDown.addEventListener('click', () => scrollList(els.list.scrollTop + (els.list.clientHeight - 60)));
 
@@ -2684,6 +2704,7 @@
     if ((dir === 'up' || dir === 'down') && current && current.parentElement === els.rows
       && (current.classList.contains('ch') || current.classList.contains('folder'))
       && stepRow(current, dir === 'down' ? 1 : -1)) return;
+    if (dir === 'right' && current && current.classList && toTopButton(current)) return;
     const items = navCandidates(navAreas());
     if (!items.includes(current)) return focusFirst();
     const r = current.getBoundingClientRect();

@@ -1057,7 +1057,7 @@ html.native-video .guide-open .g-foot { display: flex; }
 .tv :focus { outline: none; }
 .tv .ch:focus, .tv .folder:focus, .tv .mi:focus, .tv .btn:focus,
 .tv .icon-btn:focus, .tv .head-btn:focus, .tv .sb-toggle:focus, .tv .refresh:focus,
-.tv .src-picker:focus, .tv .act:focus, .tv .go:focus, .tv .link-btn:focus, .tv .volume:focus {
+.tv .src-picker:focus, .tv .act:focus, .tv .go:focus, .tv .link-btn:focus, .tv .volume:focus, .tv .list-btn:focus {
   outline: 2.5px solid rgba(122, 176, 255, .95);
   outline-offset: 2px;
   background-color: rgba(255, 255, 255, .16);

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.1
+
+### Fixed
+
+- On TV, the *Back to top* button can now be reached with the remote: from the last button of a row
+  (*⋯*), press right. After OK the list returns to the top with the focus on the first channel.
+
 ## 1.1.0
 
 ### New
