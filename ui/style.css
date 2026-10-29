@@ -304,6 +304,9 @@ body:not(.has-source) .source-meta { display: none; }
 /* Barra di scorrimento sottile, condivisa da lista canali e menu. */
 .list::-webkit-scrollbar, .menu-body::-webkit-scrollbar { width: 10px; }
 .list::-webkit-scrollbar-track, .menu-body::-webkit-scrollbar-track { background: transparent; }
+/* La barra resta lontana dagli angoli arrotondati del contenitore. */
+.list::-webkit-scrollbar-track { margin-bottom: 18px; }
+.menu-body::-webkit-scrollbar-track { margin: 12px 0; }
 .list::-webkit-scrollbar-thumb, .menu-body::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .16); border-radius: 10px; border: 3px solid transparent; background-clip: content-box; }
 .list::-webkit-scrollbar-thumb:hover, .menu-body::-webkit-scrollbar-thumb:hover { background-color: rgba(255, 255, 255, .28); }
 
@@ -851,6 +854,8 @@ body:not(.has-source) .empty, .browsing .empty {
   overscroll-behavior: contain;
 }
 .empty::-webkit-scrollbar { width: 10px; }
+/* Senza margini la barra partirebbe dal bordo della scheda, sopra l'angolo arrotondato. */
+.empty::-webkit-scrollbar-track { background: transparent; margin: 30px 0; }
 .empty::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .16); border-radius: 10px; border: 3px solid transparent; background-clip: content-box; }
 .browse-head, .browse-close { display: none; }
 .browsing .browse-head { display: block; }

@@ -1,6 +1,6 @@
 [package]
 name = "glassplay"
-version = "1.1.1"
+version = "1.1.2"
 description = "Player di canali in streaming in stile liquid glass"
 edition = "2021"
 publish = false

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.2
+
+### Fixed
+
+- On TV, the first press of OK (or any other key) after opening the app now works: before, Android
+  used it only to give the focus to the interface, so the channel panel did not open.
+- The scrollbar of the welcome screen and of the menus no longer overlaps their rounded corners.
+
 ## 1.1.1
 
 ### Fixed

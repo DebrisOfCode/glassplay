@@ -59,6 +59,17 @@ class MainActivity : TauriActivity() {
       webView.settings.userAgentString = "${webView.settings.userAgentString} GlassPlayTV"
     }
     webView.addJavascriptInterface(NativeBridge(), "GlassPlayNative")
+    // Il fuoco va subito alla pagina: altrimenti il primo tasto del telecomando (per esempio OK
+    // per aprire la lista) serve solo a dare il fuoco alla WebView e va perso.
+    webView.isFocusable = true
+    webView.isFocusableInTouchMode = true
+    webView.post { webView.requestFocus() }
+  }
+
+  override fun onWindowFocusChanged(hasFocus: Boolean) {
+    super.onWindowFocusChanged(hasFocus)
+    // Anche tornando all'app (da Home o da un'altra app) i tasti arrivano subito alla pagina.
+    webView?.let { if (hasFocus && !it.hasFocus()) it.requestFocus() }
   }
 
   // ---------- Lettore video nativo (versione legacy) ----------
